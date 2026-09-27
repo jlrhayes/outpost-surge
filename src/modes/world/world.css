@@ -1,0 +1,904 @@
+/* OWNER: world agent. World-map HUD, bottom sheets and world screens. All classes are prefixed wm-. */
+
+.wm-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--font);
+}
+.wm-hud button {
+  pointer-events: auto;
+  font-family: var(--font);
+  cursor: pointer;
+  color: #fff;
+}
+.wm-hud button:active {
+  transform: scale(0.95);
+}
+.wm-dim {
+  color: var(--text-dim);
+}
+.wm-dim.small {
+  font-size: 12px;
+}
+.wm-center {
+  text-align: center;
+}
+.wm-sep {
+  opacity: 0.5;
+  margin: 0 2px;
+}
+.wm-coord {
+  font-weight: 800;
+  color: #cfe4ff;
+}
+
+/* ---------------- top bar ---------------- */
+.wm-top {
+  position: absolute;
+  top: calc(var(--safe-top) + 6px);
+  left: 6px;
+  right: 6px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.wm-stam {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 9px 3px 5px;
+  min-height: 36px;
+  border-radius: 18px;
+  background: linear-gradient(#4a2c1cf0, #24140cf0);
+  border: 2px solid #ff9a5a;
+  font-weight: 900;
+  font-size: 15px;
+  box-shadow: 0 2px 5px #0009;
+  flex-shrink: 0;
+  text-shadow: 0 1px 1px #000;
+}
+.wm-stam small {
+  font-size: 11px;
+  opacity: 0.75;
+}
+.wm-stam-val {
+  font-variant-numeric: tabular-nums;
+}
+.wm-stam-next {
+  font-size: 10px;
+  color: #ffcf9a;
+  font-weight: 800;
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.wm-res {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.wm-res-chip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  background: rgba(10, 18, 28, 0.8);
+  border: 1px solid #ffffff26;
+  border-radius: 14px;
+  padding: 3px 7px 3px 3px;
+  font-weight: 800;
+  font-size: 12.5px;
+  text-shadow: 0 1px 1px #000;
+  white-space: nowrap;
+}
+
+/* ---------------- march chips ---------------- */
+.wm-marches {
+  position: absolute;
+  top: calc(var(--safe-top) + 50px);
+  left: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.wm-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 142px;
+  height: 40px;
+  padding: 0 10px 0 4px;
+  border-radius: 10px;
+  border: 2px solid #ffffff30;
+  background: rgba(12, 22, 34, 0.88);
+  overflow: hidden;
+  text-align: left;
+  box-shadow: 0 2px 5px #0008;
+}
+.wm-chip.attack {
+  border-color: #ff6a5a99;
+}
+.wm-chip.gather {
+  border-color: #5ee06e99;
+}
+.wm-chip.dig {
+  border-color: #ffc84a99;
+}
+.wm-chip.back {
+  border-color: #6ab8ff99;
+}
+.wm-chip-sq {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #2f7fd8;
+  border: 2px solid #9ad0ff;
+  font-weight: 900;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wm-chip-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.wm-chip-status {
+  font-size: 11px;
+  color: #b8c8d8;
+  font-weight: 700;
+}
+.wm-chip-time {
+  font-size: 14px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.wm-chip-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: #ffd23c;
+  transition: width 1s linear;
+}
+
+/* ---------------- right side buttons ---------------- */
+.wm-side {
+  position: absolute;
+  right: 6px;
+  top: calc(var(--safe-top) + 52px);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.wm-side-btn {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  border-radius: 15px;
+  border: 2px solid #ffffff45;
+  background: linear-gradient(#2e4d6af0, #1a2e44f0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  box-shadow: 0 3px 7px #0009;
+  padding: 0;
+}
+.wm-side-btn.locked {
+  filter: grayscale(0.85) brightness(0.8);
+}
+.wm-side-label {
+  font-size: 10px;
+  font-weight: 900;
+  text-shadow: 0 1px 1px #000;
+  margin-top: -1px;
+}
+.wm-side-lock {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+}
+.wm-count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 4px;
+  border-radius: 11px;
+  background: #ff3a2a;
+  border: 2px solid #fff;
+  font-size: 12px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wm-count.blue {
+  background: #2f8fff;
+}
+
+/* ---------------- bottom controls ---------------- */
+.wm-bl {
+  position: absolute;
+  left: 8px;
+  bottom: calc(var(--safe-bottom) + 16px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wm-round {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 3px solid #ffffffaa;
+  background: radial-gradient(circle at 40% 35%, #4a7aaa, #1a3a5a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 7px #0009;
+  padding: 0;
+}
+.wm-coords {
+  background: rgba(0, 0, 0, 0.58);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 1px #000;
+}
+.wm-base-btn {
+  position: absolute;
+  right: 10px;
+  bottom: calc(var(--safe-bottom) + 12px);
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: radial-gradient(circle at 35% 30%, #86d0ff, #2f7fd8 55%, #16457e);
+  font-weight: 900;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  box-shadow: 0 4px 12px #000b, inset 0 -5px 0 #0003;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* ---------------- onboarding tip / locked ---------------- */
+.wm-tip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--safe-bottom) + 104px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  width: max-content;
+  max-width: 92%;
+  border-radius: 22px;
+  border: 2px solid #ffd23c;
+  background: rgba(20, 30, 20, 0.92);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  animation: wm-pulse 1.6s ease-in-out infinite;
+}
+.wm-hud .wm-tip:active {
+  transform: translateX(-50%) scale(0.96);
+}
+.wm-tip-go {
+  background: #ffd23c;
+  color: #3a2a00;
+  border-radius: 14px;
+  padding: 5px 11px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+@keyframes wm-pulse {
+  50% {
+    box-shadow: 0 0 16px #ffd23cbb;
+  }
+}
+.wm-locked {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  width: min(300px, 86vw);
+  background: rgba(12, 20, 30, 0.93);
+  border: 2px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.wm-locked-title {
+  font-size: 18px;
+  font-weight: 900;
+}
+.wm-locked-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 30px 16px;
+}
+
+/* ---------------- bottom sheet ---------------- */
+/* The sheet's screen layer lets taps through to the map, so tapping another target swaps the sheet. */
+.screen-layer:has(> .wm-sheet-root) {
+  pointer-events: none;
+}
+.wm-sheet-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.screen-layer:has(> .wm-sheet-root) .wm-sheet-root {
+  pointer-events: none;
+}
+.wm-sheet {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  background: linear-gradient(180deg, #27435f, #172a3e);
+  border-top: 4px solid #8fd14f;
+  border-radius: 18px 18px 0 0;
+  padding: 2px 14px calc(var(--safe-bottom) + 12px);
+  box-shadow: 0 -6px 22px #000a;
+  max-height: 64vh;
+  overflow-y: auto;
+  touch-action: pan-y;
+  animation: wm-sheet-in 0.2s ease-out;
+  font-family: var(--font);
+}
+@keyframes wm-sheet-in {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+.wm-sheet-grip {
+  width: 42px;
+  height: 5px;
+  border-radius: 3px;
+  background: #ffffff40;
+  margin: 5px auto 6px;
+}
+.wm-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.wm-sheet-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #0e1a28;
+  border: 2px solid #ffffff22;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wm-sheet-titles {
+  flex: 1;
+  min-width: 0;
+}
+.wm-sheet-title {
+  font-size: 18px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px #000;
+}
+.wm-sheet-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.wm-sheet-close {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 2px solid #ffffff44;
+  background: #ffffff14;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wm-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------------- panel pieces ---------------- */
+.wm-tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.wm-tag {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #ffffff1c;
+  color: #dfe8f0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.wm-tag-elite {
+  background: #b0501a;
+  color: #fff;
+}
+.wm-tag-boss {
+  background: #a01838;
+  color: #fff;
+}
+.wm-tag-radar {
+  background: #c8352a;
+  color: #fff;
+}
+.wm-tag-lock {
+  background: #555;
+}
+.wm-tag-shield {
+  background: #1a6a98;
+  color: #fff;
+}
+.wm-vs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #0e1a28;
+  border: 2px solid #ffffff1a;
+}
+.wm-vs-good {
+  border-color: #4cc24a77;
+}
+.wm-vs-bad {
+  border-color: #ec4b3c77;
+}
+.wm-vs-even {
+  border-color: #ffd23c66;
+}
+.wm-vs-side {
+  flex: 1;
+  min-width: 0;
+}
+.wm-vs-side.right {
+  text-align: right;
+}
+.wm-vs-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+.wm-vs-num {
+  font-size: 18px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.wm-vs-side.right .wm-vs-num {
+  justify-content: flex-end;
+}
+.wm-vs-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.wm-vs-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #ffd23c;
+  color: #3a2a00;
+  font-weight: 900;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wm-vs-verdict {
+  font-size: 10px;
+  font-weight: 800;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.wm-vs-good .wm-vs-verdict {
+  color: #8ef07a;
+}
+.wm-vs-even .wm-vs-verdict {
+  color: #ffd23c;
+}
+.wm-vs-bad .wm-vs-verdict {
+  color: #ff8a7a;
+}
+.wm-section-title {
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #9fb8d0;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wm-rewards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.wm-reward {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #0e1a28;
+  border: 1px solid #ffffff1c;
+  border-radius: 8px;
+  padding: 3px 7px 3px 4px;
+  font-weight: 800;
+  font-size: 13px;
+}
+.wm-reward-item {
+  font-size: 12px;
+  color: #ffe39a;
+}
+.wm-first {
+  font-size: 12px;
+  font-weight: 800;
+  color: #9ae4ff;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wm-info {
+  font-size: 13px;
+  background: #1a4a78aa;
+  border: 1px solid #3a9cf088;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.wm-warn {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffd6ce;
+  background: #5a1a14cc;
+  border: 1px solid #ec4b3c88;
+  border-radius: 8px;
+  padding: 6px 8px 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.wm-actions .btn {
+  flex: 1;
+  max-width: 260px;
+}
+.wm-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #0005;
+  border-radius: 8px;
+  padding: 1px 6px 1px 2px;
+  margin-left: 4px;
+  font-size: 13px;
+}
+.wm-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  gap: 8px;
+}
+.wm-stat-row b {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.wm-squads {
+  display: flex;
+  gap: 6px;
+}
+.wm-squad {
+  flex: 1;
+  border-radius: 10px;
+  border: 2px solid #ffffff22;
+  background: #0e1a28;
+  color: #fff;
+  padding: 5px 4px;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.wm-squad.sel {
+  border-color: #ffd23c;
+  background: #2c3c1a;
+}
+.wm-squad.busy,
+.wm-squad.empty {
+  opacity: 0.6;
+}
+.wm-squad-name {
+  font-weight: 900;
+  font-size: 13px;
+}
+.wm-squad-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.wm-rival-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #dfe8f0;
+  flex-wrap: wrap;
+}
+.wm-desc {
+  font-size: 13px;
+  color: #d0dce8;
+}
+.wm-stars {
+  color: #ffd23c;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+.wm-stars-off {
+  color: #ffffff26;
+}
+
+/* ---------------- radar ---------------- */
+.wm-radar-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.wm-radar-head-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.wm-radar-level {
+  font-weight: 900;
+  font-size: 17px;
+}
+.wm-mission {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.wm-mission.done {
+  border-color: #ffd23c;
+  box-shadow: 0 0 12px #ffd23c44;
+}
+.wm-mission.claimed {
+  opacity: 0.5;
+}
+.wm-mission-icon {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  background: #0e1a28;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wm-mission-elite {
+  position: absolute;
+  bottom: -5px;
+  font-size: 9px;
+  font-weight: 900;
+  background: #b0501a;
+  border-radius: 6px;
+  padding: 0 4px;
+}
+.wm-mission-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wm-mission-title {
+  font-weight: 900;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.wm-mission-act {
+  flex-shrink: 0;
+}
+.wm-done {
+  font-weight: 900;
+  color: #8ef07a;
+  font-size: 13px;
+}
+.wm-lucky {
+  font-weight: 900;
+  color: #ffd23c;
+  font-size: 12px;
+}
+
+/* ---------------- reports ---------------- */
+.wm-report {
+  margin-bottom: 8px;
+  padding: 0;
+  overflow: hidden;
+}
+.wm-report.win {
+  border-left: 4px solid #4cc24a;
+}
+.wm-report.lose {
+  border-left: 4px solid #ec4b3c;
+}
+.wm-report.neutral {
+  border-left: 4px solid #3a9cf0;
+}
+.wm-report-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: none;
+  border: none;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.wm-report-badge {
+  font-size: 11px;
+  font-weight: 900;
+  border-radius: 6px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+}
+.wm-report-badge.win {
+  background: #2f8a2a;
+}
+.wm-report-badge.lose {
+  background: #a0281c;
+}
+.wm-report-badge.neutral {
+  background: #1a5fa8;
+}
+.wm-report-title {
+  flex: 1;
+  font-weight: 800;
+  font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wm-report-body {
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wm-report-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.wm-report-grid b {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.wm-report-grid b.bad {
+  color: #ff9a8a;
+}
+
+/* ---------------- search / stamina ---------------- */
+.wm-search {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+.wm-search-label {
+  font-weight: 900;
+  font-size: 16px;
+}
+.wm-stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wm-stepper .btn {
+  width: 46px;
+  font-size: 22px;
+}
+.wm-stepper-val {
+  font-size: 26px;
+  font-weight: 900;
+  min-width: 86px;
+  text-align: center;
+}
+.wm-slider {
+  width: 90%;
+  accent-color: #ffd23c;
+  pointer-events: auto;
+  touch-action: pan-x;
+}
+.wm-stamina-big {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 34px;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+.wm-stamina-big small {
+  font-size: 18px;
+  opacity: 0.7;
+}
+.modal .wm-dim.wm-center {
+  margin-top: 6px;
+}
+.wm-potion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.wm-potion-main {
+  flex: 1;
+}
