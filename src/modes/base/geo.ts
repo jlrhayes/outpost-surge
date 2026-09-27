@@ -1,7 +1,7 @@
 // OWNER: base agent. Small geometry helpers for the base scene (merged vertex-coloured parts).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { P, buildColored, type Part } from '../../three/models/builder';
+import { P, buildColored, uint8Colors, type Part } from '../../three/models/builder';
 import { propGeometry, type PropKind } from '../../three/models';
 
 /** Accumulates vertex-coloured primitive parts; call build() for one merged geometry. */
@@ -70,6 +70,8 @@ export function normalizeGeometry(src: THREE.BufferGeometry, matrix: THREE.Matri
     }
     g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
   }
+  // same colour format as buildColored() output (normalized Uint8) so everything merges
+  uint8Colors(g);
   if (matrix) g.applyMatrix4(matrix);
   g.morphAttributes = {};
   return g;
@@ -110,8 +112,9 @@ export function mergeAll(list: THREE.BufferGeometry[]): THREE.BufferGeometry | n
 export function tintGeometry(g: THREE.BufferGeometry, r: number, gg: number, b: number): void {
   const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
   if (!c) return;
+  const k = (v: number) => (v <= 0 ? 0 : v >= 1 ? 1 : v); // normalized integer colours must stay in 0..1
   for (let i = 0; i < c.count; i++) {
-    c.setXYZ(i, c.getX(i) * r, c.getY(i) * gg, c.getZ(i) * b);
+    c.setXYZ(i, k(c.getX(i) * r), k(c.getY(i) * gg), k(c.getZ(i) * b));
   }
   c.needsUpdate = true;
 }

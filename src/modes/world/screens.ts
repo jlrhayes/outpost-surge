@@ -4,10 +4,12 @@
 //   radar                    —        radar mission board
 //   worldReports             —        battle & gathering reports (with replays)
 //   worldSearch              —        find the nearest horde / resource tile of a level
-//   worldStamina             —        stamina status + potions
+//   worldStamina             —        stamina status, free claims + potions
+//   outpostDefense           —        announced rival raid, defenders, recall, outpost shields
 import type { ComponentType } from 'preact';
 import { EntitySheet, MarchSheet } from './sheets';
 import { RadarScreen, ReportsScreen, SearchModal, StaminaModal } from './panels';
+import { DefenseModal } from './defense';
 
 export const worldScreens: Record<string, ComponentType<any>> = {
   worldEntity: EntitySheet,
@@ -17,4 +19,5 @@ export const worldScreens: Record<string, ComponentType<any>> = {
   worldReports: ReportsScreen,
   worldSearch: SearchModal,
   worldStamina: StaminaModal,
+  outpostDefense: DefenseModal,
 };

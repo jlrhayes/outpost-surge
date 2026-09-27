@@ -2,13 +2,28 @@
 // squad labels, and a short burst effect when a battle resolves.
 import * as THREE from 'three';
 import type { GameState } from '../../core/store';
-import { vehicleModel } from '../../three/models';
-import { marchPosition, tileCenter, tileHeight, worldRev, type March, type WorldTerrain } from '../../systems/world';
+import { blobShadow, vehicleModel } from '../../three/models';
+import { marchPosition, tileCenter, tileHeight, worldRev, type IncomingRaid, type March, type WorldTerrain } from '../../systems/world';
+import { BASE_GATE_RADIUS } from '../../data/world';
 import { BadgeLayer, pillBadge } from './badges';
 import type { PickPoint } from './entityView';
 
-const PATH_COLORS = { attack: 0xff5a48, gather: 0x5ee06e, dig: 0xffc84a, back: 0x6ab8ff } as const;
+const PATH_COLORS = { attack: 0xff5a48, gather: 0x5ee06e, dig: 0xffc84a, back: 0x6ab8ff, raid: 0xff1e1e } as const;
 const MAX_BURSTS = 4;
+
+/** An announced rival raid party driving from its outpost to the player's gate. */
+interface RaidItem {
+  key: string;
+  inc: IncomingRaid;
+  veh: THREE.Group;
+  path: THREE.Mesh;
+  fromX: number;
+  fromZ: number;
+  toX: number;
+  toZ: number;
+  pick: PickPoint;
+  draw: ReturnType<typeof pillBadge>;
+}
 
 interface Item {
   march: March;
@@ -55,6 +70,7 @@ export class MarchView {
   private labelDraws = new Map<number, { key: string; draw: ReturnType<typeof pillBadge> }>();
   private bursts: { mesh: THREE.Mesh; t: number }[] = [];
   private burstIdx = 0;
+  private raid: RaidItem | null = null;
 
   constructor(private terrain: WorldTerrain) {
     this.labels.mesh.renderOrder = 21;
@@ -79,10 +95,10 @@ export class MarchView {
   }
 
   private pathMesh(m: March): THREE.Mesh {
-    const ax = m.fromX;
-    const az = m.fromZ;
-    const bx = m.toX;
-    const bz = m.toZ;
+    return this.pathBetween(m.fromX, m.fromZ, m.toX, m.toZ, m.phase === 'back' ? 'back' : m.kind);
+  }
+
+  private pathBetween(ax: number, az: number, bx: number, bz: number, key: keyof typeof PATH_COLORS): THREE.Mesh {
     const len = Math.max(0.01, Math.hypot(bx - ax, bz - az));
     const nx = (-(bz - az) / len) * 0.55;
     const nz = ((bx - ax) / len) * 0.55;
@@ -95,7 +111,6 @@ export class MarchView {
     );
     g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, rep, 1, 0, 0, rep, 0], 2));
     g.setIndex([0, 2, 1, 1, 2, 3]);
-    const key = m.phase === 'back' ? 'back' : m.kind;
     const mesh = new THREE.Mesh(g, this.mat(key));
     mesh.renderOrder = 6;
     mesh.frustumCulled = false;
@@ -113,9 +128,13 @@ export class MarchView {
       if (!it) {
         const veh = vehicleModel(m.vehicle.type, m.vehicle.rarity);
         veh.scale.setScalar(0.95);
+        // moving: a ground blob instead of a real shadow keeps the world's shadow map static
         veh.traverse((o) => {
-          if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+          if ((o as THREE.Mesh).isMesh) o.castShadow = false;
         });
+        const blob = blobShadow(1.5);
+        blob.position.y = 0.06;
+        veh.add(blob);
         const path = this.pathMesh(m);
         this.group.add(veh, path);
         it = { march: m, pick: { id: m.id, kind: 'march', x: 0, y: 1, z: 0, r: 1.8 }, veh, path, phase: m.phase, legStart: m.legStart };
@@ -140,6 +159,51 @@ export class MarchView {
       it.path.geometry.dispose();
       this.items.delete(id);
     }
+    this.syncRaid(s);
+  }
+
+  private syncRaid(s: GameState): void {
+    const inc = s.world.raid.incoming;
+    const key = inc ? `${inc.rivalId}:${inc.launchedAt}` : '';
+    if (this.raid && this.raid.key === key) return;
+    if (this.raid) {
+      this.group.remove(this.raid.veh, this.raid.path);
+      this.raid.path.geometry.dispose();
+      this.raid = null;
+    }
+    if (!inc) return;
+    const rival = s.world.entities.find((e) => e.id === inc.rivalId);
+    const c = rival ? tileCenter(rival.tx, rival.ty) : { x: 70, z: -70 };
+    const len = Math.max(0.001, Math.hypot(c.x, c.z));
+    const dx = c.x / len;
+    const dz = c.z / len;
+    const fromX = c.x - dx * 5.6;
+    const fromZ = c.z - dz * 5.6;
+    const toX = dx * (BASE_GATE_RADIUS + 1.5);
+    const toZ = dz * (BASE_GATE_RADIUS + 1.5);
+    const veh = vehicleModel(inc.theme, 'SSR');
+    veh.scale.setScalar(0.95);
+    veh.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = false;
+    });
+    const blob = blobShadow(1.5);
+    blob.position.y = 0.06;
+    veh.add(blob);
+    veh.rotation.y = Math.atan2(toX - fromX, toZ - fromZ);
+    const path = this.pathBetween(fromX, fromZ, toX, toZ, 'raid');
+    this.group.add(veh, path);
+    this.raid = {
+      key,
+      inc,
+      veh,
+      path,
+      fromX,
+      fromZ,
+      toX,
+      toZ,
+      pick: { id: 'raid', kind: 'raid', x: fromX, y: 1, z: fromZ, r: 2.2 },
+      draw: pillBadge({ text: `[${inc.tag}] Raid`, bg: 'rgba(120,14,10,0.95)', border: '#ff7a5a' }),
+    };
   }
 
   private burst(m: March, win: boolean): void {
@@ -184,6 +248,17 @@ export class MarchView {
         0.8,
       );
     }
+    const r = this.raid;
+    if (r) {
+      const f = Math.max(0, Math.min(1, (t - r.inc.launchedAt) / Math.max(1, r.inc.arriveAt - r.inc.launchedAt)));
+      const x = r.fromX + (r.toX - r.fromX) * f;
+      const z = r.fromZ + (r.toZ - r.fromZ) * f;
+      r.veh.position.set(x, 0.05 + Math.abs(Math.sin(time * 9)) * 0.05, z);
+      r.pick.x = x;
+      r.pick.z = z;
+      this.picks.push(r.pick);
+      this.labels.add('raid', r.draw, x, 2.8, z, 3.2, 0.8);
+    }
     this.labels.end();
     this.labels.setFrame(uiScale, time);
     for (const b of this.bursts) {
@@ -209,6 +284,8 @@ export class MarchView {
 
   dispose(): void {
     for (const it of this.items.values()) it.path.geometry.dispose();
+    this.raid?.path.geometry.dispose();
+    this.raid = null;
     this.items.clear();
     for (const m of this.mats.values()) m.dispose();
     this.tex.dispose();

@@ -1,6 +1,6 @@
 // OWNER: world agent. World-map slice. Extend freely.
 // Entity/march/report shapes are defined in src/systems/world.ts (type-only import, no runtime cycle).
-import type { March, RadarState, WorldEntity, WorldReport } from '../systems/world';
+import type { AllyState, March, RadarState, RaidState, WorldEntity, WorldReport } from '../systems/world';
 
 export interface WorldState {
   seed: number;
@@ -22,6 +22,12 @@ export interface WorldState {
   radar: RadarState;
   /** Last time hordes/resources were topped up. */
   lastMaintain: number;
+  /** Free stamina claims: timestamp each claim slot is ready again (<= now = ready). */
+  staminaClaims: number[];
+  /** Rival raids on the player's outpost (schedule, announced raid, shield). */
+  raid: RaidState;
+  /** AI alliance: daily pool of build helps. */
+  allies: AllyState;
 }
 
 export function defaultWorldState(now: number): WorldState {
@@ -37,5 +43,8 @@ export function defaultWorldState(now: number): WorldState {
     reports: [],
     radar: { missions: [], refreshAt: 0, level: 1, completed: 0 },
     lastMaintain: 0,
+    staminaClaims: [0, 0],
+    raid: { nextAt: 0, incoming: null, shieldUntil: 0, defended: 0, lost: 0 },
+    allies: { day: '', used: 0, helped: {} },
   };
 }

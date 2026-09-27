@@ -15,10 +15,12 @@ import { now } from '../core/tick';
 import { isUnlocked } from '../core/unlocks';
 import { sfx } from '../core/audio';
 import { fmt } from '../core/format';
-import { squadBusy, squadCombatants, squadPower, squadReady, squadTroops as heroSquadTroops } from './heroes';
+import { squadBusy, squadCombatants, squadPower, squadReady, squadTroops as heroSquadTroops, squadTroopsByTier } from './heroes';
 import { simulateBattle, type BattleResult } from './battle';
+import { typeEnemies } from './campaign';
 import { applyTroopLosses, bestTroopTier, totalTroops } from './troops';
-import { marchSizePerHero } from './buildings';
+import { applySpeedup, buildingLevel, getBuilding, hqLevel } from './buildings';
+import { game, mutate } from '../core/store';
 import * as D from '../data/world';
 
 export type HordeVariant = D.HordeVariant;
@@ -60,6 +62,8 @@ export interface RivalEntity extends EntityBase {
   /** Raided outposts are shielded until this timestamp. */
   shieldUntil: number;
   color: number;
+  /** Hero type the garrison is built around (older saves derive it from the id: see rivalTheme()). */
+  theme?: D.RivalTheme;
 }
 /** Radar pickups resolved instantly from the info panel. */
 export interface PickupEntity extends EntityBase {
@@ -118,7 +122,8 @@ export interface March {
 export interface WorldReport {
   id: string;
   at: number;
-  kind: 'horde' | 'rival' | 'gather' | 'dig';
+  /** 'defense' = a rival raid on the player's outpost (attackers = the player's side, for the replay). */
+  kind: 'horde' | 'rival' | 'gather' | 'dig' | 'defense';
   title: string;
   level: number;
   win: boolean;
@@ -134,6 +139,41 @@ export interface WorldReport {
   defenders: Combatant[];
   read: boolean;
   note?: string;
+  /** Resources taken by raiders (lost defences). */
+  lost?: Reward;
+}
+
+/** A rival raid party announced to be on its way to the player's outpost. */
+export interface IncomingRaid {
+  rivalId: string;
+  /** Display label, e.g. "[KAR] Rustfang Holdout" (kept even if the rival disappears). */
+  label: string;
+  tag: string;
+  color: number;
+  theme: D.RivalTheme;
+  level: number;
+  power: number;
+  launchedAt: number;
+  arriveAt: number;
+  seed: number;
+}
+
+export interface RaidState {
+  /** When the next raid party sets out (0 = not scheduled yet). */
+  nextAt: number;
+  incoming: IncomingRaid | null;
+  /** The player's outpost shield (blocks raids) lasts until this timestamp. */
+  shieldUntil: number;
+  defended: number;
+  lost: number;
+}
+
+export interface AllyState {
+  /** Local calendar day of `used` (the pool refills daily). */
+  day: string;
+  used: number;
+  /** Helps received per running upgrade, keyed `${uid}:${fromLevel}`. */
+  helped: Record<string, number>;
 }
 
 export interface RadarMission {
@@ -624,6 +664,32 @@ export function staminaCostFor(e: WorldEntity): number {
   return 0;
 }
 
+/** Ready-at timestamps of the free stamina claim slots (always STAMINA_CLAIMS long). */
+export function staminaClaimSlots(s: GameState): number[] {
+  const c = s.world.staminaClaims ?? [];
+  const out: number[] = [];
+  for (let i = 0; i < D.STAMINA_CLAIMS; i++) out.push(typeof c[i] === 'number' ? c[i] : 0);
+  return out;
+}
+
+/** Number of free +50 stamina claims ready now. */
+export function freeStaminaReady(s: GameState, t = now()): number {
+  let n = 0;
+  for (const at of staminaClaimSlots(s)) if (at <= t) n++;
+  return n;
+}
+
+/** Uses one ready free stamina claim (+50, may exceed the cap). Returns false if none is ready. Call inside mutate(). */
+export function claimFreeStaminaIn(s: GameState, t = now()): boolean {
+  const slots = staminaClaimSlots(s);
+  const i = slots.findIndex((at) => at <= t);
+  if (i < 0) return false;
+  slots[i] = t + D.STAMINA_CLAIM_COOLDOWN_MS;
+  s.world.staminaClaims = slots;
+  addStaminaIn(s, D.STAMINA_CLAIM_AMOUNT, t);
+  return true;
+}
+
 // =====================================================================================
 // Squads
 // =====================================================================================
@@ -678,8 +744,17 @@ export function combatPower(list: Combatant[]): number {
   return Math.round(p);
 }
 
-/** Side-B formation for a zombie horde. Deterministic for (level, variant, seed). */
-export function zombieCombatants(level: number, variant: HordeVariant, seed = 1): Combatant[] {
+/**
+ * Mutated elite/boss hordes carry a hero type for the counter triangle (shown on their info sheet), fixed per
+ * horde so the preview matches the fight. Normal packs are untyped.
+ */
+export function hordeType(e: HordeEntity): HeroType | null {
+  if (e.variant === 'normal') return null;
+  return D.RIVAL_THEMES[hashSeed(e.id + ':type') % D.RIVAL_THEMES.length];
+}
+
+/** Side-B formation for a zombie horde. Deterministic for (level, variant, seed[, type]). */
+export function zombieCombatants(level: number, variant: HordeVariant, seed = 1, ctype: HeroType | null = null): Combatant[] {
   const rng = mulberry32((seed ^ 0x2545f491) >>> 0);
   const P = D.hordePower(level, variant);
   const shares = D.LINEUP_SHARES[variant];
@@ -710,6 +785,10 @@ export function zombieCombatants(level: number, variant: HordeVariant, seed = 1)
       def: Math.round(u * D.STAT_DEF),
     });
   }
+  if (ctype) {
+    // the boss (or the elite front row) mutated toward one hero type
+    typeEnemies(out, { seed, bossType: variant === 'boss' ? ctype : undefined, elites: variant === 'elite' ? 2 : 0, eliteType: ctype });
+  }
   return out;
 }
 
@@ -718,38 +797,44 @@ export function rivalPower(r: RivalEntity, t = now()): number {
   return Math.round(r.basePower * (1 + Math.min(D.RIVAL_GROWTH_CAP, days * D.RIVAL_GROWTH_PER_DAY)));
 }
 
-const RIVAL_UNITS: { type: HeroType; label: string }[] = [
-  { type: 'tank', label: 'Tank' },
-  { type: 'tank', label: 'Tank' },
-  { type: 'missile', label: 'Launcher' },
-  { type: 'aircraft', label: 'Gunship' },
-  { type: 'missile', label: 'Launcher' },
-];
+/** The hero type a rival's garrison is built around (tank / aircraft / missile heavy). */
+export function rivalTheme(r: RivalEntity): D.RivalTheme {
+  return r.theme ?? D.RIVAL_THEMES[hashSeed(r.id + ':theme') % D.RIVAL_THEMES.length];
+}
 
-/** Side-B garrison of a rival outpost. */
-export function rivalCombatants(r: RivalEntity, t: number, seed = 1): Combatant[] {
+/** Unit types of a rival garrison, front row first. */
+export function rivalLineupTypes(theme: D.RivalTheme): HeroType[] {
+  return D.RIVAL_LINEUPS[theme];
+}
+
+/** A themed rival formation of total power ~P. */
+function rivalUnits(owner: string, theme: D.RivalTheme, level: number, P: number, side: 'A' | 'B', seed: number): Combatant[] {
   const rng = mulberry32((seed ^ 0x51ed27) >>> 0);
-  const P = rivalPower(r, t);
   const shares = D.LINEUP_SHARES.normal;
-  const rarity: Rarity = r.level >= 18 ? 'UR' : r.level >= 8 ? 'SSR' : 'SR';
-  return RIVAL_UNITS.map((u, i) => {
+  const rarity: Rarity = level >= 18 ? 'UR' : level >= 8 ? 'SSR' : 'SR';
+  return rivalLineupTypes(theme).map((type, i) => {
     const pw = P * shares[i] * (0.95 + rng() * 0.1);
     const hp = Math.round(pw * D.STAT_HP);
     return {
       uid: `r${i}`,
-      name: `${r.commander}'s ${u.label}`,
-      side: 'B' as const,
+      name: `${owner}'s ${D.RIVAL_UNIT_LABEL[type]}`,
+      side,
       slot: i,
-      type: u.type,
+      type,
       rarity,
-      model: u.type,
-      level: r.level,
+      model: type,
+      level,
       maxHp: hp,
       hp,
       atk: Math.round(pw * D.STAT_ATK),
       def: Math.round(pw * D.STAT_DEF),
     };
   });
+}
+
+/** Side-B garrison of a rival outpost (built around the rival's theme, see rivalTheme()). */
+export function rivalCombatants(r: RivalEntity, t: number, seed = 1): Combatant[] {
+  return rivalUnits(r.commander, rivalTheme(r), r.level, rivalPower(r, t), 'B', seed);
 }
 
 /** Displayed enemy power of an entity (0 for non-combat targets). */
@@ -912,6 +997,8 @@ export function generateWorld(s: GameState, t: number): void {
       bornAt: t,
       shieldUntil: 0,
       color: D.RIVAL_COLORS[i % D.RIVAL_COLORS.length],
+      // every garrison type appears (shuffled per map) so the counter triangle matters when raiding
+      theme: D.RIVAL_THEMES[(i + Math.floor(rng() * 3)) % D.RIVAL_THEMES.length],
     };
     w.entities.push(e);
     markOcc(occ, e.tx, e.ty, 2);
@@ -1152,7 +1239,7 @@ function resolveAttack(s: GameState, m: March, at: number): void {
   }
   const seed = hashSeed(`${m.id}:${w.seed}`);
   const rng = mulberry32(seed);
-  const defenders = e.kind === 'horde' ? zombieCombatants(e.level, e.variant, seed) : rivalCombatants(e, at, seed);
+  const defenders = e.kind === 'horde' ? zombieCombatants(e.level, e.variant, seed, hordeType(e)) : rivalCombatants(e, at, seed);
   const enemyPower = entityPower(e, at);
   let result: BattleResult | null = null;
   try {
@@ -1163,7 +1250,7 @@ function resolveAttack(s: GameState, m: March, at: number): void {
   const win = !!result && result.winner === 'A' && m.attackers.length > 0;
   const lossRatio = result ? clamp01(result.lossRatioA || 0) : 1;
   const wounded = Math.min(m.troops, Math.round(m.troops * lossRatio * (win ? 0.25 : 0.6)));
-  if (wounded > 0) applyTroopLosses(s, wounded);
+  if (wounded > 0) applyTroopLosses(s, wounded, squadTierMix(s, m.squadId));
   let loot: Reward = {};
   let kills = 0;
   let note: string | undefined;
@@ -1588,6 +1675,353 @@ export function searchNearest(s: GameState, kind: SearchKind, level: number): Wo
 }
 
 // =====================================================================================
+// Rival raids on the player's outpost
+// =====================================================================================
+
+/** Soldiers of a squad by tier (tier -> count), so losses come from the tiers that actually fought. */
+function squadTierMix(s: GameState, squadId: number): Record<number, number> | undefined {
+  try {
+    const out = squadTroopsByTier(s, squadId);
+    return Object.keys(out).length ? out : undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+/** Soldiers inside the outpost (not away on marches). */
+export function troopsAtHome(s: GameState): number {
+  let away = 0;
+  for (const m of s.world.marches) away += m.troops;
+  return Math.max(0, totalTroops(s) - away);
+}
+
+/** Raids only hit outposts past the tutorial: HQ 6+, never in the first hour of a save. */
+export function raidsActive(s: GameState, t = now()): boolean {
+  return isUnlocked(s, 'world') && hqLevel(s) >= D.RAID_MIN_HQ && t - (s.createdAt || t) >= D.RAID_GRACE_MS;
+}
+
+export function outpostShielded(s: GameState, t = now()): boolean {
+  return s.world.raid.shieldUntil > t;
+}
+
+/** HP/DEF multiplier the Wall gives the outpost's defenders. */
+export function wallDefenceMult(s: GameState): number {
+  return 1 + D.RAID_WALL_BONUS_PER_LEVEL * buildingLevel(s, 'wall');
+}
+
+/** True if Squad 1 is inside the outpost with heroes assigned (it defends against raids). */
+export function defenderHome(s: GameState): boolean {
+  return squadReady(s, 1) && !squadBusy(s, 1);
+}
+
+/**
+ * Wall guns manning the outpost when Squad 1 is away (or has no heroes): power from the Wall level and the
+ * soldiers at home, deliberately weaker than a real squad.
+ */
+function garrisonCombatants(s: GameState): Combatant[] {
+  const wall = Math.max(1, buildingLevel(s, 'wall'));
+  const P = D.hordePower(wall) * 0.45 + troopsAtHome(s) * 6;
+  const out: Combatant[] = [];
+  for (let i = 0; i < 3; i++) {
+    const pw = P * (i < 2 ? 0.36 : 0.28);
+    const hp = Math.round(pw * D.STAT_HP);
+    const type: HeroType = i < 2 ? 'tank' : 'missile';
+    out.push({
+      uid: `g${i}`,
+      name: i < 2 ? 'Wall Turret' : 'Mortar Pit',
+      side: 'A',
+      slot: i,
+      type,
+      rarity: 'SR',
+      model: type,
+      level: wall,
+      maxHp: hp,
+      hp,
+      atk: Math.round(pw * D.STAT_ATK),
+      def: Math.round(pw * D.STAT_DEF),
+    });
+  }
+  return out;
+}
+
+/** The outpost's defenders right now (Squad 1 if home, else the wall garrison), with the Wall bonus applied. */
+export function outpostDefenders(s: GameState): Combatant[] {
+  const base = defenderHome(s) ? clone(safeSquadCombatants(s, 1)) : [];
+  const list = base.length ? base : garrisonCombatants(s);
+  const k = wallDefenceMult(s);
+  for (const c of list) {
+    c.side = 'A';
+    c.maxHp = Math.round(c.maxHp * k);
+    c.hp = c.maxHp;
+    c.def = Math.round(c.def * k);
+  }
+  return list;
+}
+
+/** Defence power shown to the player (current defenders incl. the Wall bonus). */
+export function outpostDefencePower(s: GameState): number {
+  return combatPower(outpostDefenders(s));
+}
+
+/** What a raid is measured against: Squad 1 at full strength (home or not), or the garrison without heroes. */
+function raidBaseline(s: GameState): number {
+  return Math.max(safeSquadPower(s, 1), combatPower(garrisonCombatants(s)));
+}
+
+function scheduleRaid(s: GameState, t: number): void {
+  const rng = mulberry32(hashSeed(`${s.world.seed}:raidAt:${t}`));
+  s.world.raid.nextAt = t + D.RAID_INTERVAL_MIN_MS + Math.floor(rng() * (D.RAID_INTERVAL_MAX_MS - D.RAID_INTERVAL_MIN_MS));
+}
+
+/** Announces a raid party from a random rival (it lands RAID_WARN_MS later). Call inside mutate() / the ticker. */
+export function launchRaid(s: GameState, t = now()): IncomingRaid | null {
+  const rivals = s.world.entities.filter((e): e is RivalEntity => e.kind === 'rival');
+  if (!rivals.length) return null;
+  const seed = hashSeed(`${s.world.seed}:raid:${t}`);
+  const rng = mulberry32(seed);
+  const e = rivals[Math.floor(rng() * rivals.length)];
+  const base = raidBaseline(s);
+  const power = Math.round(Math.max(base * D.RAID_POWER_MIN, Math.min(base * D.RAID_POWER_MAX, rivalPower(e, t) * D.RAID_RIVAL_SHARE)));
+  const inc: IncomingRaid = {
+    rivalId: e.id,
+    label: entityLabel(e),
+    tag: e.tag,
+    color: e.color,
+    theme: rivalTheme(e),
+    level: e.level,
+    power,
+    launchedAt: t,
+    arriveAt: t + D.RAID_WARN_MS,
+    seed,
+  };
+  s.world.raid.incoming = inc;
+  worldRev.marches++;
+  liveToast(t, `Raid incoming! ${inc.label} is marching on your outpost.`, 'bad', sfx.error);
+  return inc;
+}
+
+/** The raid party's formation (side B), built around the rival's garrison theme. */
+export function raidAttackers(inc: IncomingRaid): Combatant[] {
+  const owner = inc.label.replace(/^\[[^\]]*\]\s*/, '');
+  return rivalUnits(owner, inc.theme, inc.level, inc.power, 'B', inc.seed);
+}
+
+/** Takes a capped share of the unprotected food/iron/gold (Warehouse storage raises the protected amount). */
+function stealResources(s: GameState): Reward {
+  const hq = hqLevel(s);
+  const protect = D.raidProtected(hq, getBonus(s, 'storage_pct'));
+  const cur: Partial<Record<CurrencyId, number>> = {};
+  for (const res of ['food', 'iron', 'gold'] as const) {
+    const have = Math.floor(s.currencies[res] ?? 0);
+    const take = Math.min(D.raidStealCap(hq, res), Math.floor(Math.max(0, have - protect) * D.RAID_STEAL_SHARE));
+    if (take > 0) {
+      s.currencies[res] = have - take;
+      cur[res] = take;
+    }
+  }
+  return Object.keys(cur).length ? { currencies: cur } : {};
+}
+
+/** Resources a lost raid could take right now (for the defence screen). */
+export function raidLossPreview(s: GameState): Record<'food' | 'iron' | 'gold', number> {
+  const hq = hqLevel(s);
+  const protect = D.raidProtected(hq, getBonus(s, 'storage_pct'));
+  const out = { food: 0, iron: 0, gold: 0 };
+  for (const res of ['food', 'iron', 'gold'] as const) {
+    out[res] = Math.min(D.raidStealCap(hq, res), Math.floor(Math.max(0, (s.currencies[res] ?? 0) - protect) * D.RAID_STEAL_SHARE));
+  }
+  return out;
+}
+
+/** Resolves the announced raid at `at` (shield, battle, losses, report). Call inside mutate() / the ticker. */
+function resolveRaid(s: GameState, at: number): void {
+  const r = s.world.raid;
+  const inc = r.incoming;
+  if (!inc) return;
+  r.incoming = null;
+  scheduleRaid(s, at);
+  worldRev.marches++;
+  const report = (x: Partial<WorldReport> & { win: boolean; note: string }) =>
+    pushReport(s, {
+      id: nextId(s, 'b'),
+      at,
+      kind: 'defense',
+      title: `Raid by ${inc.label}`,
+      level: inc.level,
+      squadId: 1,
+      power: 0,
+      enemyPower: inc.power,
+      troops: 0,
+      wounded: 0,
+      kills: 0,
+      loot: {},
+      seed: inc.seed,
+      attackers: [],
+      defenders: [],
+      read: false,
+      ...x,
+    });
+  if (r.shieldUntil > at) {
+    r.defended++;
+    report({ win: true, note: 'Your outpost shield turned the raiders away. No battle took place.' });
+    liveToast(at, `${inc.label} turned back at your shield`, 'good');
+    return;
+  }
+  const home = defenderHome(s);
+  const defenders = outpostDefenders(s);
+  const attackers = raidAttackers(inc);
+  let result: BattleResult | null = null;
+  try {
+    result = simulateBattle(clone(defenders), clone(attackers), inc.seed);
+  } catch (err) {
+    console.error('raid simulation failed', err);
+  }
+  const win = !result || result.winner === 'A';
+  const lossRatio = result ? clamp01(result.lossRatioA || 0) : 0;
+  const troops = troopsAtHome(s);
+  const wounded = Math.min(troops, Math.round(troops * lossRatio * (win ? D.RAID_WOUND_WIN : D.RAID_WOUND_LOSS)));
+  if (wounded > 0) applyTroopLosses(s, wounded, home ? squadTierMix(s, 1) : undefined);
+  let loot: Reward = {};
+  let lost: Reward | undefined;
+  if (win) {
+    loot = D.raidSalvage(hqLevel(s));
+    grantIn(s, loot);
+    r.defended++;
+    addStat(s, 'raidsDefended');
+  } else {
+    lost = stealResources(s);
+    r.lost++;
+    addStat(s, 'raidsLost');
+  }
+  report({
+    win,
+    squadId: home ? 1 : 0,
+    power: combatPower(defenders),
+    troops,
+    wounded,
+    loot,
+    lost,
+    // replayed from the player's side: the defenders fight as side A
+    attackers: defenders,
+    defenders: attackers,
+    note: win
+      ? `Your defences held${home ? '' : ' even without Squad 1'}. The raiders left salvage behind.`
+      : home
+        ? 'The raiders broke through and looted your stores. Strengthen Squad 1 and upgrade the Wall.'
+        : 'Squad 1 was away and the wall guns were overrun. Keep Squad 1 home when a raid is announced.',
+  });
+  if (win) liveToast(at, `Defences held! ${inc.label}'s raid was repelled.`, 'good', sfx.win);
+  else liveToast(at, `${inc.label} raided your outpost!`, 'bad', sfx.lose);
+}
+
+/** Raid scheduling / announcement / resolution (world ticker). Returns true if state changed. */
+export function processRaids(s: GameState, t: number): boolean {
+  const r = s.world.raid;
+  if (r.incoming) {
+    if (t < r.incoming.arriveAt) return false;
+    resolveRaid(s, r.incoming.arriveAt);
+    return true;
+  }
+  if (!raidsActive(s, t)) {
+    if (r.nextAt === 0) return false;
+    r.nextAt = 0;
+    return true;
+  }
+  if (r.nextAt === 0) {
+    scheduleRaid(s, t);
+    return true;
+  }
+  if (t < r.nextAt) return false;
+  // due while the game was closed, or deterred by the shield: no raid this time
+  if (t - r.nextAt > D.RAID_STALE_MS || r.shieldUntil > t) scheduleRaid(s, t);
+  else launchRaid(s, t);
+  return true;
+}
+
+/** Buys an outpost shield (SHIELD_OPTIONS[i]); extends a running one. Returns an error or null. Call inside mutate(). */
+export function buyShieldIn(s: GameState, i: number, t = now()): string | null {
+  const o = D.SHIELD_OPTIONS[i];
+  if (!o) return 'Unknown shield';
+  if ((s.currencies.diamonds ?? 0) < o.diamonds) return 'Not enough diamonds';
+  s.currencies.diamonds -= o.diamonds;
+  s.world.raid.shieldUntil = Math.max(s.world.raid.shieldUntil, t) + o.hours * 3600_000;
+  worldRev.entities++;
+  return null;
+}
+
+// =====================================================================================
+// AI alliance: build helps
+// =====================================================================================
+
+function localDay(t: number): string {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+/** Ally helps left in today's pool. */
+export function allyHelpsLeft(s: GameState, t = now()): number {
+  const a = s.world.allies;
+  return a.day === localDay(t) ? Math.max(0, D.ALLY_HELPS_PER_DAY - a.used) : D.ALLY_HELPS_PER_DAY;
+}
+
+function helpKey(uid: string, level: number): string {
+  return `${uid}:${level}`;
+}
+
+/** Helps the running upgrade of a building has received. */
+export function allyHelpsOn(s: GameState, uid: string): number {
+  const b = getBuilding(s, uid);
+  return b ? (s.world.allies.helped[helpKey(uid, b.level)] ?? 0) : 0;
+}
+
+/** How many helps a tap on this upgrade would get right now (0 = no help bubble). */
+export function allyHelpsAvailable(s: GameState, uid: string, t = now()): number {
+  if (!isUnlocked(s, 'world')) return 0;
+  const b = getBuilding(s, uid);
+  if (!b || b.upgradeEndsAt === null || b.upgradeEndsAt <= t) return 0;
+  return Math.max(0, Math.min(D.ALLY_HELPS_PER_UPGRADE - allyHelpsOn(s, uid), allyHelpsLeft(s, t)));
+}
+
+/**
+ * Asks the AI alliance to help a running upgrade: up to ALLY_HELPS_PER_UPGRADE helps (limited by the daily
+ * pool), each cutting 1% of the remaining time or 1 min, applied via applySpeedup(). Null if no help available.
+ */
+export function requestAllyHelp(uid: string): { helps: number; ms: number; left: number } | null {
+  const t = now();
+  const n = allyHelpsAvailable(game, uid, t);
+  const b = getBuilding(game, uid);
+  if (n <= 0 || !b || b.upgradeEndsAt === null) return null;
+  const level = b.level;
+  let remaining = b.upgradeEndsAt - t;
+  let ms = 0;
+  for (let i = 0; i < n && remaining > 0; i++) {
+    const cut = Math.min(remaining, D.allyHelpCutMs(remaining));
+    ms += cut;
+    remaining -= cut;
+  }
+  mutate((st) => {
+    const a = st.world.allies;
+    const day = localDay(t);
+    if (a.day !== day) {
+      a.day = day;
+      a.used = 0;
+    }
+    a.used += n;
+    // forget helps on upgrades that have finished since
+    for (const k of Object.keys(a.helped)) {
+      const i = k.lastIndexOf(':');
+      const bb = getBuilding(st, k.slice(0, i));
+      if (!bb || bb.upgradeEndsAt === null || String(bb.level) !== k.slice(i + 1)) delete a.helped[k];
+    }
+    const key = helpKey(uid, level);
+    a.helped[key] = (a.helped[key] ?? 0) + n;
+    addStat(st, 'allyHelps', n);
+  });
+  applySpeedup(uid, Math.round(ms));
+  return { helps: n, ms, left: allyHelpsLeft(game, t) };
+}
+
+// =====================================================================================
 // Ticker
 // =====================================================================================
 
@@ -1605,5 +2039,6 @@ export function worldTick(s: GameState, t: number): boolean {
     s.world.lastMaintain = t;
     if (maintainWorld(s, t)) changed = true;
   }
+  if (processRaids(s, t)) changed = true;
   return changed;
 }

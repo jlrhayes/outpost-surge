@@ -5,6 +5,7 @@ import { ruinedBlockModel, vcMaterial, zombieGeometry } from '../../three/models
 import { mulberry32 } from '../../core/rng';
 import { DISTRICTS, DISTRICT_SIZE, PLOTS, type DistrictDef } from '../../data/buildings';
 import { PartList, buildParts, mergeAll, normalizeGeometry } from './geo';
+import { int8Normals, releaseAfterUpload } from '../world/gpuMemory';
 
 const LOT = DISTRICT_SIZE - 3.2; // usable lot inside the streets
 const FOG_LAYERS = [0.35, 1.25, 2.3, 3.6];
@@ -249,6 +250,8 @@ export class DistrictLayer {
   private marker: THREE.Mesh;
   /** Number of districts shown as cleared (may lag behind the game during a reveal). */
   cleared = 0;
+  /** Bumped whenever the (shadow-casting) ruin/decor meshes are rebuilt. */
+  geomRev = 0;
   private reveal: { d: number; t: number; ruins: THREE.Mesh; decor: THREE.Mesh; onDone?: () => void } | null = null;
 
   private m4 = new THREE.Matrix4();
@@ -341,12 +344,14 @@ export class DistrictLayer {
     this.setCleared(cleared);
   }
 
+  // Cached per-district geometry is only ever merged with each other or rendered as-is, so it uses compact
+  // normals (Int8) on top of the Uint8 colours every buildColored()/normalizeGeometry() result has.
   private ruin(i: number): THREE.BufferGeometry {
     let g = this.ruinCache.get(i);
     if (!g) {
       const d = DISTRICTS[i];
       // Low quality: the far ring uses the lighter procedural ruins.
-      g = this.quality === 'low' && d.ring > 1 ? ruinFallback(d) : ruinGeometry(d);
+      g = int8Normals(this.quality === 'low' && d.ring > 1 ? ruinFallback(d) : ruinGeometry(d));
       this.ruinCache.set(i, g);
     }
     return g;
@@ -354,8 +359,14 @@ export class DistrictLayer {
 
   private decor(i: number): THREE.BufferGeometry {
     let g = this.decorCache.get(i);
-    if (!g) this.decorCache.set(i, (g = decorGeometry(DISTRICTS[i])));
+    if (!g) this.decorCache.set(i, (g = int8Normals(decorGeometry(DISTRICTS[i]))));
     return g;
+  }
+
+  /** Re-creates the merged chunk meshes (after a WebGL context restore: their CPU copy was released). */
+  rebuildGeometry(): void {
+    if (this.reveal) this.rebuild(this.cleared, this.reveal.d);
+    else this.rebuild(this.cleared);
   }
 
   /**
@@ -382,6 +393,8 @@ export class DistrictLayer {
       for (const list of [c.ruins, c.decor]) {
         const g = mergeAll(list);
         if (!g) continue;
+        // merged copies are render-only (taps use districtAt()); the per-district caches stay for rebuilds
+        releaseAfterUpload(g);
         const m = new THREE.Mesh(g, vcMaterial());
         m.castShadow = c.inner;
         m.receiveShadow = true;
@@ -389,6 +402,7 @@ export class DistrictLayer {
         this.chunkMeshes.push(m);
       }
     }
+    this.geomRev++;
   }
 
   /** Instantly shows `n` cleared districts. */

@@ -1,6 +1,6 @@
 // OWNER: world agent. Tuning tables for the world map: sizes, timers, enemy power curves, loot, names.
 // Everything here is plain data/pure functions so it can be tuned without touching the systems.
-import type { Reward } from '../core/types';
+import type { HeroType, Reward } from '../core/types';
 
 // ---------------------------------------------------------------- map geometry
 /** Tiles per map side. The player's base sits in the centre. */
@@ -16,8 +16,13 @@ export const BASE_GATE_RADIUS = 8;
 
 // ---------------------------------------------------------------- stamina
 export const STAMINA_MAX = 120;
-export const STAMINA_REGEN_MS = 5 * 60_000;
+/** +1 per 2 min: the genre's 5 min, compressed like the rest of the game's timers. */
+export const STAMINA_REGEN_MS = 2 * 60_000;
 export const STAMINA_COST = { normal: 10, elite: 20, boss: 20, rival: 10 } as const;
+/** Free stamina claims: this many slots, each gives STAMINA_CLAIM_AMOUNT and recharges independently. */
+export const STAMINA_CLAIMS = 2;
+export const STAMINA_CLAIM_AMOUNT = 50;
+export const STAMINA_CLAIM_COOLDOWN_MS = 3600_000;
 
 // ---------------------------------------------------------------- marches
 /** Travel time per tile of distance (before march_speed_pct). */
@@ -169,6 +174,18 @@ export const RIVAL_POWER_MULT = 1.25;
 export const RIVAL_GROWTH_PER_DAY = 0.08;
 export const RIVAL_GROWTH_CAP = 3;
 
+/** Each rival outpost fields a garrison built around one hero type (so counters matter). */
+export type RivalTheme = HeroType;
+export const RIVAL_THEMES: RivalTheme[] = ['tank', 'aircraft', 'missile'];
+/** Unit types per formation slot (0-1 front row) for each garrison theme. */
+export const RIVAL_LINEUPS: Record<RivalTheme, HeroType[]> = {
+  tank: ['tank', 'tank', 'tank', 'missile', 'tank'],
+  aircraft: ['tank', 'aircraft', 'aircraft', 'aircraft', 'missile'],
+  missile: ['tank', 'missile', 'missile', 'missile', 'aircraft'],
+};
+export const RIVAL_UNIT_LABEL: Record<HeroType, string> = { tank: 'Tank', aircraft: 'Gunship', missile: 'Launcher' };
+export const RIVAL_THEME_NAME: Record<RivalTheme, string> = { tank: 'Armored column', aircraft: 'Air wing', missile: 'Missile battery' };
+
 export function rivalPlunderPreview(level: number): Reward {
   const g = Math.pow(1.18, level - 1);
   return {
@@ -227,3 +244,57 @@ export const HORDE_NAMES: Record<HordeVariant, string> = {
   elite: 'Mauler Brood',
   boss: 'Blight Colossus',
 };
+
+// ---------------------------------------------------------------- rival raids on the player's outpost
+/** Raids start once the HQ reaches this level (and never in a save's first hour). */
+export const RAID_MIN_HQ = 6;
+export const RAID_GRACE_MS = 3600_000;
+/** Time between raids (random in [min, max]) and the warning before an announced raid lands. */
+export const RAID_INTERVAL_MIN_MS = 2 * 3600_000;
+export const RAID_INTERVAL_MAX_MS = 4 * 3600_000;
+export const RAID_WARN_MS = 4 * 60_000;
+/** A raid due while the game was closed is skipped (rescheduled) instead of launched on return. */
+export const RAID_STALE_MS = 10 * 60_000;
+/**
+ * Raid strength: a share of the rival's garrison power, kept between these fractions of the player's full
+ * Squad 1 defence — beatable with Squad 1 at home behind the Wall, dangerous when it's out marching.
+ */
+export const RAID_RIVAL_SHARE = 0.55;
+export const RAID_POWER_MIN = 0.7;
+export const RAID_POWER_MAX = 0.95;
+/** Defender HP/DEF bonus per Wall level. */
+export const RAID_WALL_BONUS_PER_LEVEL = 0.03;
+/** Wounded soldiers (share of troops at home x HP lost) after a won / lost defence. */
+export const RAID_WOUND_WIN = 0.15;
+export const RAID_WOUND_LOSS = 0.35;
+/** Share of unprotected food/iron/gold stolen after a lost defence. */
+export const RAID_STEAL_SHARE = 0.12;
+
+/** Resources safe from raiders (per resource): grows with HQ level, boosted by producer storage (Warehouse). */
+export function raidProtected(hq: number, storagePct: number): number {
+  return Math.round(4000 * hq * (1 + (2 * Math.max(0, storagePct)) / 100));
+}
+/** Most that one lost raid can take of a resource. */
+export function raidStealCap(hq: number, res: 'food' | 'iron' | 'gold'): number {
+  const c = 3000 * Math.pow(1.3, Math.max(0, hq - RAID_MIN_HQ));
+  return Math.round(res === 'gold' ? c * 0.3 : c);
+}
+/** Salvage left behind by a beaten raid party. */
+export function raidSalvage(hq: number): Reward {
+  const g = Math.pow(1.2, Math.max(0, hq - RAID_MIN_HQ));
+  return { currencies: { iron: Math.round(1500 * g), food: Math.round(1200 * g), heroExp: Math.round(600 * g) } };
+}
+/** Outpost shields bought with diamonds (block raids while active). */
+export const SHIELD_OPTIONS: { hours: number; diamonds: number }[] = [
+  { hours: 2, diamonds: 60 },
+  { hours: 8, diamonds: 180 },
+];
+
+// ---------------------------------------------------------------- AI alliance helps
+/** Ally helps available per day, max helps one upgrade can receive, and what one help does. */
+export const ALLY_HELPS_PER_DAY = 10;
+export const ALLY_HELPS_PER_UPGRADE = 5;
+/** One help cuts 1% of the remaining time or 1 minute, whichever is larger. */
+export function allyHelpCutMs(remainingMs: number): number {
+  return Math.max(60_000, remainingMs * 0.01);
+}

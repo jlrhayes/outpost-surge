@@ -72,7 +72,8 @@ export class Environment {
     );
     flag.position.set(this.flagPos.x, 6.9, this.flagPos.z);
     flag.rotation.y = -0.5;
-    flag.castShadow = true;
+    // waves every frame: casting would force a shadow-map re-render per frame (base shadows are static)
+    flag.castShadow = false;
     this.group.add(flag);
   }
 
@@ -168,9 +169,9 @@ export class Environment {
     return m;
   }
 
-  /** Rebuilds the perimeter wall for a wall level tier (0: palisade, 1: concrete, 2: fortified). */
-  setWallTier(tier: number): void {
-    if (tier === this.wallTier) return;
+  /** Rebuilds the perimeter wall for a wall level tier (0: palisade, 1: concrete, 2: fortified). Returns true if rebuilt. */
+  setWallTier(tier: number): boolean {
+    if (tier === this.wallTier) return false;
     this.wallTier = tier;
     if (this.wallMesh) {
       this.group.remove(this.wallMesh);
@@ -241,6 +242,7 @@ export class Environment {
     m.receiveShadow = true;
     this.wallMesh = m;
     this.group.add(m);
+    return true;
   }
 
   private makeProps(quality: 'low' | 'high'): void {

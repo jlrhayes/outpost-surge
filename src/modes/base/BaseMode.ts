@@ -28,8 +28,13 @@ import { BuildingViews } from './buildingsView';
 import { Effects } from './effects';
 import { layoutVersion, projectAnchors, sceneBusy, selection, setAnchor, shownCleared, zoomedOut } from './anchors';
 import { doCollect, sceneHooks } from './actions';
+import { contextEpoch } from '../world/gpuMemory';
 
 const HIT_MAT = new THREE.MeshBasicMaterial({ visible: false });
+/** The sun (and its shadow frustum) follows the camera in steps of this many units. */
+const SHADOW_SNAP = 8;
+/** Half-size of the shadow frustum around the snapped camera target. */
+const SHADOW_EXT = 56;
 
 export class BaseMode implements GameMode {
   readonly scene = new THREE.Scene();
@@ -54,6 +59,12 @@ export class BaseMode implements GameMode {
   private pickables: THREE.Object3D[] = [];
   private vehicleHits: THREE.Mesh[] = [];
   private tmp = new THREE.Vector3();
+  // Static shadows: the map is re-rendered only when the layout, the snapped frustum or an animation needs it.
+  private shX = NaN;
+  private shZ = NaN;
+  private shadowTick = 0;
+  private builtEpoch = contextEpoch();
+  private districtRev = -1;
 
   constructor() {
     this.quality = game.settings.quality;
@@ -62,12 +73,15 @@ export class BaseMode implements GameMode {
     this.scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a8a5c, 1.5));
     this.sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
     this.sun.castShadow = this.quality === 'high';
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(1024, 1024);
+    // Nothing that moves every frame casts (walkers use blob shadows, the flag doesn't cast), so the shadow
+    // map is static: see requestShadows().
+    this.sun.shadow.autoUpdate = false;
     const sc = this.sun.shadow.camera;
-    sc.left = -52;
-    sc.right = 52;
-    sc.top = 52;
-    sc.bottom = -52;
+    sc.left = -SHADOW_EXT;
+    sc.right = SHADOW_EXT;
+    sc.top = SHADOW_EXT;
+    sc.bottom = -SHADOW_EXT;
     sc.near = 1;
     sc.far = 200;
     this.sun.shadow.bias = -0.0006;
@@ -129,6 +143,12 @@ export class BaseMode implements GameMode {
     this.rig.attach(engine.canvas);
     this.applyQuality();
     this.syncState(true);
+    this.requestShadows();
+  }
+
+  /** Re-render the (otherwise static) shadow map on the next frame. */
+  private requestShadows(): void {
+    this.sun.shadow.needsUpdate = true;
   }
 
   exit(): void {
@@ -155,6 +175,7 @@ export class BaseMode implements GameMode {
     this.life = new Life(q);
     this.districts = new DistrictLayer(q, this.districts.cleared);
     this.scene.add(this.life.group, this.districts.group);
+    this.requestShadows();
   }
 
   /** Pushes game state into the scene (called when the store version changes). */
@@ -163,9 +184,12 @@ export class BaseMode implements GameMode {
     if (!force && v === this.lastVersion) return;
     this.lastVersion = v;
     const settled = this.districts.revealing ? this.districts.cleared - 1 : this.districts.cleared;
-    if (this.views.sync(game, now(), settled)) layoutVersion.value++;
+    if (this.views.sync(game, now(), settled)) {
+      layoutVersion.value++;
+      this.requestShadows();
+    }
     const wall = buildingLevel(game, 'wall');
-    this.env.setWallTier(wall >= 10 ? 2 : wall >= 5 ? 1 : 0);
+    if (this.env.setWallTier(wall >= 10 ? 2 : wall >= 5 ? 1 : 0)) this.requestShadows();
     this.pickables = [...this.views.hits, ...this.vehicleHits];
   }
 
@@ -382,9 +406,23 @@ export class BaseMode implements GameMode {
   update(dt: number, t: number): void {
     this.rig.update(dt);
     const tg = this.rig.target;
-    this.sun.position.set(tg.x - 26, 58, tg.z + 30);
-    this.sun.target.position.set(tg.x, 0, tg.z);
-    this.sun.target.updateMatrixWorld();
+    const epoch = contextEpoch();
+    if (epoch !== this.builtEpoch) {
+      // WebGL context restored: rebuild the scenery whose CPU copy was released after upload
+      this.builtEpoch = epoch;
+      this.districts.rebuildGeometry();
+      this.requestShadows();
+    }
+    const sx = Math.round(tg.x / SHADOW_SNAP) * SHADOW_SNAP;
+    const sz = Math.round(tg.z / SHADOW_SNAP) * SHADOW_SNAP;
+    if (sx !== this.shX || sz !== this.shZ) {
+      this.shX = sx;
+      this.shZ = sz;
+      this.sun.position.set(sx - 26, 58, sz + 30);
+      this.sun.target.position.set(sx, 0, sz);
+      this.sun.target.updateMatrixWorld();
+      this.requestShadows();
+    }
 
     if (this.active) {
       this.syncState();
@@ -403,8 +441,16 @@ export class BaseMode implements GameMode {
     this.districts.update(dt, t);
     this.life.update(t);
     this.env.update(t);
-    this.views.update(dt, now(), game);
+    const anim = this.views.update(dt, now(), game);
     this.fx.update(dt);
+    // casters that animate: bounce / district reveal every frame, slow construction rise ~3x a second
+    this.shadowTick += dt;
+    if (anim === 'fast' || this.districts.revealing || this.districts.geomRev !== this.districtRev) {
+      this.districtRev = this.districts.geomRev;
+      this.requestShadows();
+    }
+    else if (anim === 'slow' && this.shadowTick > 0.33) this.requestShadows();
+    if (this.sun.shadow.needsUpdate) this.shadowTick = 0;
 
     const far = this.rig.dist > 95;
     if (far !== zoomedOut.peek()) zoomedOut.value = far;

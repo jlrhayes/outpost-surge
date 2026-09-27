@@ -92,6 +92,10 @@ export class Life {
   readonly lootTruck: THREE.Object3D;
   private survivors: THREE.InstancedMesh;
   private soldiers: THREE.InstancedMesh;
+  /** Ground blob shadows under walkers + drill squad (they move every frame, so they don't cast real ones). */
+  private blobs: THREE.InstancedMesh;
+  private blobGeo: THREE.BufferGeometry;
+  private blobMat: THREE.MeshBasicMaterial;
   private walkers: Walker[] = [];
   private loops = PATHS.map((p) => new Loop(p));
   private nSoldiers: number;
@@ -110,17 +114,26 @@ export class Life {
       this.walkers.push({ path, d: rng() * this.loops[path].total, speed: (0.9 + rng() * 0.8) * (rng() < 0.5 ? 1 : -1), bob: rng() * 6 });
     }
     this.survivors = new THREE.InstancedMesh(survivorGeometry(), vcMaterial(), nWalk);
-    this.survivors.castShadow = quality === 'high';
+    this.survivors.castShadow = false;
     this.survivors.frustumCulled = false;
     this.survivors.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(this.survivors);
 
     this.nSoldiers = quality === 'high' ? 15 : 9;
     this.soldiers = new THREE.InstancedMesh(soldierGeometry(), vcMaterial(), this.nSoldiers);
-    this.soldiers.castShadow = quality === 'high';
+    this.soldiers.castShadow = false;
     this.soldiers.frustumCulled = false;
     this.soldiers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(this.soldiers);
+
+    this.blobGeo = new THREE.CircleGeometry(0.42, 10);
+    this.blobGeo.rotateX(-Math.PI / 2);
+    this.blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2, depthWrite: false });
+    this.blobs = new THREE.InstancedMesh(this.blobGeo, this.blobMat, nWalk + this.nSoldiers);
+    this.blobs.frustumCulled = false;
+    this.blobs.renderOrder = 1;
+    this.blobs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.blobs);
 
     // Parked vehicles.
     const jeep = new THREE.Group();
@@ -155,6 +168,9 @@ export class Life {
   dispose(): void {
     this.survivors.dispose();
     this.soldiers.dispose();
+    this.blobs.dispose();
+    this.blobGeo.dispose();
+    this.blobMat.dispose();
     for (const v of [this.specOps, this.lootTruck]) {
       v.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -177,6 +193,8 @@ export class Life {
       this.v.set(o[0] + Math.cos(yaw) * side, 0.14 + Math.abs(Math.sin(t * 8 + w.bob)) * 0.05, o[1] - Math.sin(yaw) * side);
       this.m4.compose(this.v, this.q, this.s);
       this.survivors.setMatrixAt(i, this.m4);
+      this.m4.makeTranslation(this.v.x, 0.2, this.v.z);
+      this.blobs.setMatrixAt(i, this.m4);
     });
     this.survivors.instanceMatrix.needsUpdate = true;
 
@@ -198,7 +216,10 @@ export class Life {
       this.v.set(offX + (c - (cols - 1) / 2) * 1.05, 0.18 + step * 0.06, -0.6 + r * 1.5);
       this.m4.compose(this.v, this.q, this.s);
       this.soldiers.setMatrixAt(i, this.m4);
+      this.m4.makeTranslation(this.v.x, 0.21, this.v.z);
+      this.blobs.setMatrixAt(this.walkers.length + i, this.m4);
     }
     this.soldiers.instanceMatrix.needsUpdate = true;
+    this.blobs.instanceMatrix.needsUpdate = true;
   }
 }
