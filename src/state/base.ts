@@ -13,19 +13,39 @@ export interface BuildingState {
   upgradeStartedAt: number | null;
   /** For producers: timestamp of last collection (production accrues from here, capped by storage). */
   collectedAt: number;
+  /** For producers: output banked at an older (lower) level, added on top of accrual since collectedAt. */
+  stored?: number;
 }
 
 export interface BaseState {
   buildings: BuildingState[];
   /** Number of concurrent construction queues. */
   builders: number;
+  /** Districts whose "cleared" reveal the player has already seen in the base scene. */
+  districtsSeen: number;
 }
 
 export function defaultBaseState(now: number): BaseState {
+  const b = (uid: string, type: BuildingType, level: number, plot: number, collectedAt = now) => ({
+    uid,
+    type,
+    level,
+    plot,
+    upgradeEndsAt: null,
+    upgradeStartedAt: null,
+    collectedAt,
+    stored: 0,
+  });
   return {
     buildings: [
-      { uid: 'hq_1', type: 'hq', level: 1, plot: 0, upgradeEndsAt: null, upgradeStartedAt: null, collectedAt: now },
+      b('hq_1', 'hq', 1, 0),
+      b('wall_1', 'wall', 1, 1),
+      // A farm that has already been growing for a while, so there is food to collect right away.
+      b('farm_1', 'farm', 1, 9, now - 25 * 60 * 1000),
+      // A marked-out Parade Yard foundation (level 0): the first construction job of the opening.
+      b('drill_1', 'drill', 0, 5),
     ],
     builders: 1,
+    districtsSeen: 0,
   };
 }

@@ -1,23 +1,390 @@
 // OWNER: base agent. 3D scene for the 'base' mode. Implements GameMode (see src/three/engine.ts).
+// Sunny low-poly outpost: walled compound with HQ, plots and ambient life, surrounded by zombie districts.
 import * as THREE from 'three';
-import type { GameMode } from '../../three/engine';
+import { engine, type GameMode } from '../../three/engine';
+import { game, mutate, version } from '../../core/store';
+import { now } from '../../core/tick';
+import { baseFocus, openScreen, screens, toast, type BaseFocusRequest } from '../../core/nav';
+import { on } from '../../core/events';
+import { sfx } from '../../core/audio';
+import { districtsCleared, isUnlocked, unlockHint } from '../../core/unlocks';
+import { BUILDINGS, DISTRICTS, buildingName, plotDef } from '../../data/buildings';
+import {
+  bubbleThreshold,
+  buildingLevel,
+  buildingsOf,
+  freePlotsFor,
+  getBuilding,
+  maxCount,
+  nextInstanceRule,
+  ruleText,
+  uncollected,
+} from '../../systems/buildings';
+import { CameraRig } from './camera';
+import { Environment } from './env';
+import { DistrictLayer } from './districts';
+import { Life } from './life';
+import { BuildingViews } from './buildingsView';
+import { Effects } from './effects';
+import { layoutVersion, projectAnchors, sceneBusy, selection, setAnchor, shownCleared, zoomedOut } from './anchors';
+import { doCollect, sceneHooks } from './actions';
+
+const HIT_MAT = new THREE.MeshBasicMaterial({ visible: false });
 
 export class BaseMode implements GameMode {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+  readonly camera = new THREE.PerspectiveCamera(44, 1, 0.5, 700);
+  private rig = new CameraRig(this.camera);
+  private env: Environment;
+  private districts: DistrictLayer;
+  private life: Life;
+  private views = new BuildingViews();
+  private fx = new Effects();
+  private sun: THREE.DirectionalLight;
+  private quality: 'low' | 'high';
+  private lastVersion = -1;
+  private active = false;
+  private width = 1;
+  private height = 1;
+  private pendingFocus: BaseFocusRequest | null = null;
+  private handledFocusT = 0;
+  private pendingReveal = 0;
+  private revealDelay = 0;
+  private lastSel: string | null = null;
+  private pickables: THREE.Object3D[] = [];
+  private vehicleHits: THREE.Mesh[] = [];
+  private tmp = new THREE.Vector3();
 
   constructor() {
-    this.scene.background = new THREE.Color(0x7fae5a);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x445544, 1.2));
-    this.camera.position.set(0, 20, 20);
-    this.camera.lookAt(0, 0, 0);
+    this.quality = game.settings.quality;
+    this.scene.background = new THREE.Color(0xa6d8ee);
+    this.scene.fog = new THREE.Fog(0xb9def0, 150, 300);
+    this.scene.add(new THREE.HemisphereLight(0xeef8ff, 0x6f7a55, 1.25));
+    this.sun = new THREE.DirectionalLight(0xfff0d6, 2.1);
+    this.sun.castShadow = this.quality === 'high';
+    this.sun.shadow.mapSize.set(2048, 2048);
+    const sc = this.sun.shadow.camera;
+    sc.left = -52;
+    sc.right = 52;
+    sc.top = 52;
+    sc.bottom = -52;
+    sc.near = 1;
+    sc.far = 200;
+    this.sun.shadow.bias = -0.0006;
+    this.sun.shadow.normalBias = 0.03;
+    this.scene.add(this.sun, this.sun.target);
+
+    this.env = new Environment(this.quality);
+    this.scene.add(this.env.group);
+    const cleared = districtsCleared(game);
+    this.districts = new DistrictLayer(this.quality, Math.min(cleared, game.base.districtsSeen ?? 0));
+    this.scene.add(this.districts.group);
+    this.life = new Life(this.quality);
+    this.scene.add(this.life.group);
+    this.scene.add(this.views.group, this.fx.group);
+    this.makeVehicleHits();
+
+    // Static anchors.
+    for (const d of DISTRICTS) setAnchor('d:' + d.id, d.x, 3.5, d.z);
+
+    this.rig.onTap = (x, y) => this.onTap(x, y);
+    this.rig.jumpTo(0, 8, 78);
+
+    baseFocus.subscribe((req) => {
+      if (req && req.t !== this.handledFocusT) this.pendingFocus = req;
+    });
+    on('building:upgraded', ({ uid }) => this.celebrate(uid));
+    sceneHooks.bounce = (uid) => this.views.bounce(uid);
+    sceneHooks.celebrate = (uid) => this.celebrate(uid);
+    if (import.meta.env.DEV) Object.assign(window as any, { __base: this, __engine: engine }); // dev-only inspection hooks
+    sceneHooks.focusUid = (uid) => {
+      this.syncState();
+      const v = this.views.view(uid);
+      if (v) {
+        this.rig.focusOn(v.plot.x, v.plot.z + 2, Math.min(this.rig.dist, 60));
+        this.select(uid);
+      }
+    };
   }
 
-  enter(params: any): void {}
-  exit(): void {}
-  update(dt: number, elapsed: number): void {}
+  private makeVehicleHits(): void {
+    for (const [obj, id, sx, sy, sz] of [
+      [this.life.specOps, 'specops', 2.6, 2.4, 3.8],
+      [this.life.lootTruck, 'loot', 2.8, 2.6, 4.8],
+    ] as const) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), HIT_MAT);
+      m.position.copy(obj.position);
+      m.position.y += sy / 2;
+      m.rotation.y = obj.rotation.y;
+      m.userData.vehicle = id;
+      this.scene.add(m);
+      this.vehicleHits.push(m);
+    }
+    setAnchor('v:specops', this.life.specOps.position.x, 3.0, this.life.specOps.position.z);
+    setAnchor('v:loot', this.life.lootTruck.position.x, 3.4, this.life.lootTruck.position.z);
+  }
+
+  enter(_params: any): void {
+    this.active = true;
+    this.rig.attach(engine.canvas);
+    this.applyQuality();
+    this.syncState(true);
+  }
+
+  exit(): void {
+    this.active = false;
+    this.rig.detach(engine.canvas);
+    selection.value = null;
+  }
+
   resize(w: number, h: number): void {
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.width = w;
+    this.height = h;
+    this.rig.resize(w, h);
+  }
+
+  private applyQuality(): void {
+    const q = game.settings.quality;
+    if (q === this.quality) return;
+    this.quality = q;
+    this.sun.castShadow = q === 'high';
+    // Crowd sizes depend on quality: rebuild the ambient layers.
+    this.scene.remove(this.life.group, this.districts.group);
+    this.life = new Life(q);
+    this.districts = new DistrictLayer(q, this.districts.cleared);
+    this.scene.add(this.life.group, this.districts.group);
+  }
+
+  /** Pushes game state into the scene (called when the store version changes). */
+  private syncState(force = false): void {
+    const v = version.peek();
+    if (!force && v === this.lastVersion) return;
+    this.lastVersion = v;
+    const settled = this.districts.revealing ? this.districts.cleared - 1 : this.districts.cleared;
+    if (this.views.sync(game, now(), settled)) layoutVersion.value++;
+    const wall = buildingLevel(game, 'wall');
+    this.env.setWallTier(wall >= 10 ? 2 : wall >= 5 ? 1 : 0);
+    this.pickables = [...this.views.hits, ...this.vehicleHits];
+  }
+
+  private select(uid: string | null): void {
+    const key = uid ? 'b:' + uid : null;
+    selection.value = key;
+    this.applySelection();
+  }
+
+  private applySelection(): void {
+    const key = selection.value;
+    if (key === this.lastSel) return;
+    this.lastSel = key;
+    const uid = key && key.startsWith('b:') ? key.slice(2) : null;
+    this.views.select(uid);
+    const v = uid ? this.views.view(uid) : undefined;
+    if (v) setAnchor('sel', v.plot.x, 0.2, v.plot.z + v.footprint * 0.55 + 0.6);
+  }
+
+  private celebrate(uid: string): void {
+    const v = this.views.view(uid);
+    if (!v) return;
+    this.views.bounce(uid);
+    if (!this.active) return;
+    this.fx.pillar(v.plot.x, v.plot.z, v.footprint * 0.6, v.height + 6);
+    this.fx.burst(v.plot.x, v.height * 0.6, v.plot.z, 0xffd84a, 46, v.footprint, 7);
+    this.fx.ring(v.plot.x, v.plot.z, v.footprint * 0.9, 0xffe07a, 1.2);
+  }
+
+  // ---- input ----
+  private onTap(x: number, y: number): void {
+    if (this.districts.revealing || this.pendingReveal) return;
+    const ray = this.rig.raycaster(x, y);
+    const hits = ray.intersectObjects(this.pickables, false);
+    for (const h of hits) {
+      const uid = h.object.userData.uid as string | undefined;
+      if (uid) return this.tapBuilding(uid);
+      const veh = h.object.userData.vehicle as string | undefined;
+      if (veh) return this.tapVehicle(veh);
+    }
+    if (!this.rig.groundAt(x, y, this.tmp)) return;
+    // Empty plot pad?
+    for (const id of this.views.emptyPlots) {
+      const p = plotDef(id)!;
+      if (Math.abs(p.x - this.tmp.x) < 2.3 && Math.abs(p.z - this.tmp.z) < 2.3) {
+        sfx.click();
+        this.fx.ring(p.x, p.z, 2.6, 0x8fe3ff, 0.6);
+        openScreen('buildMenu', { plot: id });
+        return;
+      }
+    }
+    const d = this.districts.districtAt(this.tmp.x, this.tmp.z);
+    if (d && d > this.districts.cleared) {
+      if (d === this.districts.cleared + 1) {
+        sfx.click();
+        openScreen('campaign');
+      } else {
+        sfx.error();
+        toast(`Clear District ${this.districts.cleared + 1} first`, 'bad');
+      }
+      return;
+    }
+    this.select(null);
+  }
+
+  private tapBuilding(uid: string): void {
+    const b = getBuilding(game, uid);
+    if (!b) return;
+    const def = BUILDINGS[b.type];
+    if (def.produces && uncollected(game, b) >= bubbleThreshold(game, b)) {
+      doCollect(uid);
+      this.select(uid);
+      return;
+    }
+    sfx.click();
+    if ((b.level === 0 && b.upgradeEndsAt === null) || selection.value === 'b:' + uid) {
+      openScreen('buildingPanel', { uid });
+      return;
+    }
+    this.select(uid);
+  }
+
+  private tapVehicle(id: string): void {
+    if (id === 'specops') {
+      if (isUnlocked(game, 'runner')) {
+        sfx.click();
+        openScreen('runnerLevels');
+      } else {
+        sfx.error();
+        toast(`Special Ops: ${unlockHint('runner')}`, 'bad');
+      }
+    } else {
+      sfx.click();
+      openScreen('campaign');
+    }
+  }
+
+  // ---- focus requests (quest "Go" buttons, requirement links) ----
+  private applyFocus(req: BaseFocusRequest): void {
+    this.handledFocusT = req.t;
+    this.syncState(true);
+    let uid = req.uid;
+    if (!uid && req.type) {
+      const list = buildingsOf(game, req.type);
+      let best: (typeof list)[number] | undefined;
+      for (const b of list) if (!best || b.level > best.level) best = b;
+      uid = best?.uid;
+    }
+    if (uid) {
+      const v = this.views.view(uid);
+      if (!v) return;
+      this.rig.focusOn(v.plot.x, v.plot.z + 2, Math.min(this.rig.dist, 56));
+      this.select(uid);
+      this.fx.ring(v.plot.x, v.plot.z, v.footprint * 0.9, 0xffe07a, 1.4);
+      setTimeout(() => this.fx.ring(v.plot.x, v.plot.z, v.footprint * 0.9, 0xffe07a, 1.4), 450);
+      this.views.bounce(uid);
+      if (req.openPanel) setTimeout(() => openScreen('buildingPanel', { uid }), 650);
+      return;
+    }
+    if (req.type) {
+      const type = req.type;
+      const plots = freePlotsFor(game, type).filter((id) => this.views.emptyPlots.has(id));
+      if (buildingsOf(game, type).length >= maxCount(game, type)) {
+        const r = nextInstanceRule(game, type);
+        toast(r ? `${buildingName(type)}: ${ruleText(r)}` : `${buildingName(type)} unavailable`, 'bad');
+        return;
+      }
+      if (!plots.length) {
+        toast('No free plot: clear more districts to reclaim land', 'bad');
+        return;
+      }
+      const p = plotDef(plots[0])!;
+      this.rig.focusOn(p.x, p.z + 2, Math.min(this.rig.dist, 56));
+      this.fx.ring(p.x, p.z, 3, 0x8fe3ff, 1.4);
+      setTimeout(() => this.fx.ring(p.x, p.z, 3, 0x8fe3ff, 1.4), 450);
+      if (req.openPanel) setTimeout(() => openScreen('buildMenu', { plot: p.id, highlight: type }), 650);
+    }
+  }
+
+  // ---- district reveal ----
+  private checkDistricts(dt: number): void {
+    const cleared = districtsCleared(game);
+    const shown = this.districts.cleared;
+    if (cleared < shown && !this.districts.revealing) {
+      this.districts.setCleared(cleared);
+      this.syncState(true);
+      return;
+    }
+    if (this.pendingReveal) {
+      this.revealDelay -= dt;
+      if (this.revealDelay <= 0) {
+        const id = this.pendingReveal;
+        this.pendingReveal = 0;
+        const d = DISTRICTS[id - 1];
+        sfx.explode();
+        setTimeout(() => sfx.win(), 500);
+        this.fx.burst(d.x, 2, d.z, 0xffffff, 60, 8, 6);
+        this.districts.startReveal(id, () => this.onRevealed(id));
+      }
+      return;
+    }
+    if (this.districts.revealing || cleared <= shown || screens.value.length > 0) return;
+    if (cleared - shown > 1) this.districts.setCleared(cleared - 1);
+    const id = Math.min(cleared, DISTRICTS.length);
+    if (id <= this.districts.cleared) {
+      this.districts.setCleared(cleared);
+      this.markSeen(cleared);
+      return;
+    }
+    const d = DISTRICTS[id - 1];
+    this.pendingReveal = id;
+    this.revealDelay = 0.8;
+    this.select(null);
+    this.rig.focusOn(d.x, d.z + 3, 58, 0.8);
+  }
+
+  private onRevealed(id: number): void {
+    const d = DISTRICTS[id - 1];
+    this.fx.burst(d.x, 1, d.z, 0xffe07a, 70, 9, 8);
+    this.fx.ring(d.x, d.z, 9, 0x9cff7a, 1.6);
+    this.markSeen(id);
+    this.syncState(true);
+    toast(`District ${id} reclaimed! New land for buildings.`, 'good');
+  }
+
+  private markSeen(n: number): void {
+    if ((game.base.districtsSeen ?? 0) >= n) return;
+    mutate((s) => {
+      s.base.districtsSeen = Math.max(s.base.districtsSeen ?? 0, n);
+    });
+  }
+
+  update(dt: number, t: number): void {
+    this.rig.update(dt);
+    const tg = this.rig.target;
+    this.sun.position.set(tg.x - 26, 58, tg.z + 30);
+    this.sun.target.position.set(tg.x, 0, tg.z);
+    this.sun.target.updateMatrixWorld();
+
+    if (this.active) {
+      this.syncState();
+      if (this.pendingFocus) {
+        const req = this.pendingFocus;
+        this.pendingFocus = null;
+        this.applyFocus(req);
+      }
+      this.checkDistricts(dt);
+      this.applySelection();
+    }
+    const busy = this.districts.revealing || this.pendingReveal > 0;
+    if (busy !== sceneBusy.peek()) sceneBusy.value = busy;
+    if (shownCleared.peek() !== this.districts.cleared) shownCleared.value = this.districts.cleared;
+
+    this.districts.update(dt, t);
+    this.life.update(t);
+    this.env.update(t);
+    this.views.update(dt, now(), game);
+    this.fx.update(dt);
+
+    const far = this.rig.dist > 95;
+    if (far !== zoomedOut.peek()) zoomedOut.value = far;
+    projectAnchors(this.camera, this.width, this.height, this.rig.moved);
   }
 }
