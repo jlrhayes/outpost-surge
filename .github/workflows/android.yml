@@ -1,0 +1,159 @@
+name: Android APK
+
+# Builds a signed release APK with Capacitor + Gradle.
+#  - push to main / manual run: APK uploaded as a workflow artifact.
+#  - push of a tag v*: additionally published to a GitHub Release (created if missing) for that tag.
+#
+# Signing secrets (optional; without them the APK is signed with a throwaway debug key, see README):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # create/update the GitHub Release on tag builds
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Java 21 (required by Capacitor 8 / AGP 8.13)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Compute version
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION_NAME="${GITHUB_REF_NAME#v}"
+          else
+            VERSION_NAME="${PKG_VERSION}-build.${GITHUB_RUN_NUMBER}"
+          fi
+          # Keep the file name / versionName safe (tags could contain '/').
+          VERSION_NAME=$(printf '%s' "$VERSION_NAME" | tr -c 'A-Za-z0-9._+-' '-')
+          # versionCode must strictly increase for Android to accept an update: the run number of this
+          # workflow does (it is shared by main and tag builds).
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "Building Outpost Surge $VERSION_NAME (versionCode $GITHUB_RUN_NUMBER)"
+
+      - name: Decode release keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" ]]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > "$RUNNER_TEMP/release.p12"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+            echo "Release keystore decoded ($(stat -c %s "$RUNNER_TEMP/release.p12") bytes)."
+          else
+            echo "::warning title=Unsigned release::ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD secrets are not set, so this APK is signed with a temporary debug key. Players will have to uninstall before installing a build signed with a different key. Run 'npm run keystore' and add the secrets (see README)."
+          fi
+
+      - name: Build release APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APK
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' -print -quit)
+          if [[ -z "$APK" ]]; then echo "::error::No APK produced"; exit 1; fi
+          DEST="out/OutpostSurge-${VERSION_NAME}.apk"
+          cp "$APK" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          ls -l out
+          # Log the signing certificate so it is easy to confirm every release uses the same key.
+          APKSIGNER=$(ls -d "${ANDROID_HOME:-/nonexistent}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1 || true)
+          if [[ -n "$APKSIGNER" ]]; then "$APKSIGNER" verify --print-certs "$DEST" | grep -E 'Signer #1 certificate (DN|SHA-256)' || true; fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.apk.outputs.path }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          OWNER_LC="${GITHUB_REPOSITORY_OWNER,,}"
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          PAGES_URL="https://${OWNER_LC}.github.io/${REPO_NAME}/"
+          APK_FILE="$(basename "$APK_PATH")"
+          cat > release-notes.md <<EOF
+          ## Outpost Surge ${VERSION_NAME}
+
+          An original, fan-made squad-runner and outpost-building survival game.
+
+          ### Install on Android
+          1. On your phone, download **${APK_FILE}** from the *Assets* list below.
+          2. Open the downloaded file. If Android asks, allow your browser / file manager to **install unknown apps** (Settings > Apps > Special app access > Install unknown apps).
+          3. Tap **Install**, then open **Outpost Surge**. Updating later works the same way: install the newer APK over the old one; your progress is kept.
+
+          ### iPhone / any other phone
+          Open ${PAGES_URL} in Safari (iPhone) or Chrome (Android), then use **Share > Add to Home Screen** (Safari) or **menu > Add to Home screen / Install app** (Chrome). It runs full-screen and works offline after the first load.
+
+          _Not affiliated with, endorsed by, or connected to any other game or company._
+          EOF
+          PRERELEASE=()
+          if [[ "$TAG" == *-* ]]; then PRERELEASE=(--prerelease); fi
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG exists; uploading/replacing the APK."
+            gh release upload "$TAG" "$APK_PATH" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH" --verify-tag --title "Outpost Surge ${VERSION_NAME}" --notes-file release-notes.md "${PRERELEASE[@]}"
+          fi
