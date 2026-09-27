@@ -4,8 +4,11 @@ import { App } from './ui/App';
 import { engine } from './three/engine';
 import { modeFactories } from './modes';
 import { startTicking } from './core/tick';
-import { game, startAutosave } from './core/store';
-import { goTo } from './core/nav';
+import { game, mutate, startAutosave } from './core/store';
+import { goTo, openScreen } from './core/nav';
+import { debugSkip, now } from './core/tick';
+import { grant } from './core/economy';
+import type { ModeId } from './core/types';
 import { unlockAudio } from './core/audio';
 
 // Module registrations (tickers, bonus/power providers, event listeners). Order-independent.
@@ -28,9 +31,22 @@ function boot() {
   };
   window.addEventListener('pointerdown', unlock);
 
-  // Like the genre's opening: brand-new players start straight in a squad run, then land in the base.
-  if (!game.runner.introDone) goTo('runner', { level: 1, intro: true });
-  else goTo('base');
+  // Dev-only test hooks: ?mode=runner&level=3 | ?mode=world | ?mode=base&screen=heroes, and window.__os.
+  const q = new URLSearchParams(location.search);
+  if (import.meta.env.DEV) {
+    (window as any).__os = { game, mutate, goTo, openScreen, debugSkip, grant, now };
+  }
+  const devMode = import.meta.env.DEV ? (q.get('mode') as ModeId | null) : null;
+
+  if (devMode) {
+    if (devMode !== 'runner') mutate((s) => (s.runner.introDone = true));
+    goTo(devMode, devMode === 'runner' ? { level: Number(q.get('level') ?? 1), intro: q.get('intro') === '1' } : undefined);
+    const scr = q.get('screen');
+    if (scr) openScreen(scr);
+  } else if (!game.runner.introDone) {
+    // Like the genre's opening: brand-new players start straight in a squad run, then land in the base.
+    goTo('runner', { level: 1, intro: true });
+  } else goTo('base');
 
   document.getElementById('boot')?.remove();
 }
