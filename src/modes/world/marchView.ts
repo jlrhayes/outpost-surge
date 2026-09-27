@@ -52,7 +52,7 @@ export class MarchView {
   private rev = -1;
   private tmp = { x: 0, z: 0 };
   private tmpT = { x: 0, z: 0 };
-  private labelDraws = new Map<number, ReturnType<typeof pillBadge>>();
+  private labelDraws = new Map<number, { key: string; draw: ReturnType<typeof pillBadge> }>();
   private bursts: { mesh: THREE.Mesh; t: number }[] = [];
   private burstIdx = 0;
 
@@ -169,14 +169,14 @@ export class MarchView {
       it.pick.x = p.x;
       it.pick.z = p.z;
       this.picks.push(it.pick);
-      let draw = this.labelDraws.get(m.squadId);
-      if (!draw) {
-        draw = pillBadge({ text: `Squad ${m.squadId}`, bg: 'rgba(14,60,120,0.95)', border: '#8fd0ff' });
-        this.labelDraws.set(m.squadId, draw);
+      let lab = this.labelDraws.get(m.squadId);
+      if (!lab) {
+        lab = { key: 'sq:' + m.squadId, draw: pillBadge({ text: `Squad ${m.squadId}`, bg: 'rgba(14,60,120,0.95)', border: '#8fd0ff' }) };
+        this.labelDraws.set(m.squadId, lab);
       }
       this.labels.add(
-        'sq:' + m.squadId,
-        draw,
+        lab.key,
+        lab.draw,
         p.x,
         2.8,
         p.z,

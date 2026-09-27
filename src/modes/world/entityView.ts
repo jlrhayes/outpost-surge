@@ -75,11 +75,13 @@ export class EntityView {
   private nBrutes = 0;
   private rivals = new Map<string, { group: THREE.Group; shield: THREE.Mesh; level: number }>();
   private shieldMat = new THREE.MeshBasicMaterial({ color: 0x8ad8ff, transparent: true, opacity: 0.22, depthWrite: false });
-  private shieldGeo = new THREE.SphereGeometry(4.4, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  private shieldGeo = new THREE.SphereGeometry(5.6, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
   /** Waving flags (animated with the art library's animateModel). */
   private flags: THREE.Object3D[] = [];
   private baseGroup = new THREE.Group();
   private baseKey = '';
+  private baseSig = 0;
+  private lastPower = -1;
   private baseDressingGeo: THREE.BufferGeometry | null = null;
   private ring: THREE.Mesh;
   private ringBase = 1;
@@ -348,14 +350,14 @@ export class EntityView {
     if (!r) {
       const g = new THREE.Group();
       const hq = buildingModel('hq', lv);
-      hq.scale.setScalar(0.52);
+      hq.scale.setScalar(0.72);
       g.add(hq);
-      const wall = new THREE.Mesh(wallRingGeometry('rival', 3.7, [Math.PI / 2], 0.4, 0.8), vcMaterial());
+      const wall = new THREE.Mesh(wallRingGeometry('rival', 4.7, [Math.PI / 2], 0.34, 0.95), vcMaterial());
       wall.castShadow = true;
       wall.receiveShadow = true;
       g.add(wall);
       const flag = flagModel(e.color);
-      flag.position.set(2.3, 0, -2.3);
+      flag.position.set(3.0, 0, -3.0);
       g.add(flag);
       this.flags.push(flag);
       const shield = new THREE.Mesh(this.shieldGeo, this.shieldMat);
@@ -372,6 +374,11 @@ export class EntityView {
 
 
   private syncBase(s: GameState): void {
+    // cheap allocation-free signature first; the full rebuild only runs when buildings changed
+    let sig = this.quality === 'high' ? 1 : 2;
+    for (const b of s.base.buildings) sig = (sig * 31 + b.level * 17 + b.type.length + b.plot * 7) | 0;
+    if (sig === this.baseSig) return;
+    this.baseSig = sig;
     const hq = Math.max(1, hqLevel(s));
     const blds = s.base.buildings
       .filter((b) => b.type !== 'hq' && b.type !== 'wall' && b.level > 0)
@@ -484,7 +491,7 @@ export class EntityView {
     const c = tileCenter(e.tx, e.ty);
     this.ring.visible = true;
     this.ring.position.set(c.x, tileHeight(this.terrain, e.tx, e.ty) + 0.12, c.z);
-    this.ringBase = e.kind === 'rival' ? 4.6 : e.kind === 'horde' && e.variant === 'boss' ? 2.9 : 2.3;
+    this.ringBase = e.kind === 'rival' ? 5.8 : e.kind === 'horde' && e.variant === 'boss' ? 2.9 : 2.3;
   }
 
   setSelected(s: GameState, id: string | null): void {
@@ -512,6 +519,12 @@ export class EntityView {
     }
     if (time - this.lastShieldCheck > 1) {
       this.lastShieldCheck = time;
+      // the outpost badge shows headline power: refresh it when that changes
+      const pw = totalPower(s);
+      if (pw !== this.lastPower) {
+        this.lastPower = pw;
+        this.rev = -1;
+      }
       for (const e of s.world.entities) {
         if (e.kind !== 'rival') continue;
         const r = this.rivals.get(e.id);
@@ -537,8 +550,11 @@ export class EntityView {
 // ------------------------------------------------------------------ badge styles
 
 function hordeBadge(level: number, variant: HordeVariant, locked: boolean) {
-  if (locked)
-    return pillBadge({ text: `Lv ${level}`, bg: 'rgba(30,30,30,0.9)', border: '#8a8a8a', fg: '#c8c8c8', icon: glyph.lock, iconBg: '#555' });
+  if (locked) {
+    // still attackable later: keep the variant colour, dimmed, with a lock
+    const border = variant === 'boss' ? '#a8506a' : variant === 'elite' ? '#b07a4a' : '#8a8a8a';
+    return pillBadge({ text: `Lv ${level}`, bg: 'rgba(30,30,30,0.9)', border, fg: '#c8c8c8', icon: glyph.lock, iconBg: '#555' });
+  }
   if (variant === 'boss')
     return pillBadge({ text: `Lv ${level}`, bg: 'rgba(60,10,30,0.94)', border: '#ff4a6a', icon: glyph.crown, iconBg: '#a01838' });
   if (variant === 'elite')

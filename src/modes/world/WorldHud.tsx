@@ -43,7 +43,7 @@ export function WorldHud() {
               onClick={() => {
                 sfx.click();
                 selectedEntity.value = null;
-                requestCam({ x: 0, z: 0 });
+                requestCam({ x: 0, z: 5 });
               }}
             >
               <Icon name="target" size={28} />

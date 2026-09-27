@@ -42,7 +42,7 @@ export const WORLD_GEN_VERSION = 1;
 
 // ---------------------------------------------------------------- radar
 export const RADAR_REFRESH_MS = 6 * 3600_000;
-export const RADAR_BASE_MISSIONS = 8;
+export const RADAR_BASE_MISSIONS = 10;
 export const RADAR_MISSIONS_PER_LEVEL_STEP = 3; // +1 mission every N radar levels
 export const RADAR_MAX_MISSIONS = 12;
 export const RADAR_MISSIONS_PER_LEVEL = 8; // completed missions per radar level
@@ -50,11 +50,11 @@ export const RADAR_MISSIONS_PER_LEVEL = 8; // completed missions per radar level
 // ---------------------------------------------------------------- horde level layout
 /** Natural horde level for a distance (in tiles) from the base centre. */
 export function levelForDistance(dTiles: number): number {
-  return Math.max(1, Math.min(MAX_HORDE_LEVEL, Math.round((dTiles - 3) / 1.1)));
+  return Math.max(1, Math.min(MAX_HORDE_LEVEL, Math.round((dTiles - 4) / 1.1)));
 }
 /** Inverse of levelForDistance: where (in tiles) a horde of this level naturally lives. */
 export function distanceForLevel(level: number): number {
-  return 3 + level * 1.1;
+  return 4 + level * 1.1;
 }
 
 // ---------------------------------------------------------------- enemy power
@@ -70,16 +70,16 @@ export function hordePower(level: number, variant: HordeVariant = 'normal'): num
 }
 
 /**
- * Stat model for generated enemies. A unit with "power" u gets hp = u*HP, atk = u*ATK, def = u*DEF,
- * and power is re-estimated as hp*0.5 + atk*4 + def*2 (= u with the defaults below).
+ * Stat model for generated enemies, matching the heroes module's power formula
+ * (power = hp + atk*10 + def*5, troops ~10 hp per 1 atk). A unit with power u gets
+ * hp = u*STAT_HP, atk = u*STAT_ATK, def = u*STAT_DEF, which re-estimates to ~u.
  */
-export const STAT_HP = 1.0;
-export const STAT_ATK = 0.1;
-export const STAT_DEF = 0.05;
+export const STAT_HP = 0.46;
+export const STAT_ATK = 0.046;
+export const STAT_DEF = 0.016;
 export function estimatePower(hp: number, atk: number, def: number): number {
-  return hp * 0.5 + atk * 4 + def * 2;
+  return hp + atk * 10 + def * 5;
 }
-
 /** Share of the formation's power per slot (front row 0-1 is beefier). */
 export const LINEUP_SHARES: Record<HordeVariant, number[]> = {
   normal: [0.24, 0.24, 0.18, 0.17, 0.17],

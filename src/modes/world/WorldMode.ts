@@ -10,8 +10,9 @@ import { game, mutate } from '../../core/store';
 import { now } from '../../core/tick';
 import { closeScreen, openScreen, screens } from '../../core/nav';
 import { sfx } from '../../core/audio';
-import { ensureWorld, entityById, getTerrain, tileCenter, worldToTile } from '../../systems/world';
-import { MAP_TILES } from '../../data/world';
+import { ensureWorld, entityById, getTerrain, tileCenter } from '../../systems/world';
+import { isUnlocked } from '../../core/unlocks';
+import { HALF, MAP_TILES, TILE } from '../../data/world';
 import { CameraRig } from './camera';
 import { buildTerrainView, type TerrainView } from './terrainView';
 import { EntityView, type PickPoint } from './entityView';
@@ -154,6 +155,7 @@ export class WorldMode implements GameMode {
     const top = stack[stack.length - 1];
     // a full-screen panel/modal is open: the map is not interactive
     if (top && !WORLD_SHEETS.has(top.id)) return;
+    if (!isUnlocked(game, 'world')) return;
     const best = this.pick(cx, cy);
     // tapping the map while a sheet is open replaces (or just closes) it
     if (top) closeScreen(top.key);
@@ -290,9 +292,9 @@ export class WorldMode implements GameMode {
       this.terrainView.grid.visible = g.opacity > 0.005 && s.settings.quality === 'high';
     }
     // coordinates readout (only publish when the tile changes)
-    const tile = worldToTile(tg.x, tg.z - (this.sheetOffset && screens.value.length ? this.sheetShift(this.rig.dist) : 0));
-    const tx = Math.max(0, Math.min(MAP_TILES - 1, tile.tx));
-    const ty = Math.max(0, Math.min(MAP_TILES - 1, tile.ty));
+    const cz = tg.z - (this.sheetOffset && screens.value.length ? this.sheetShift(this.rig.dist) : 0);
+    const tx = Math.max(0, Math.min(MAP_TILES - 1, Math.floor((tg.x + HALF) / TILE)));
+    const ty = Math.max(0, Math.min(MAP_TILES - 1, Math.floor((cz + HALF) / TILE)));
     if (tx !== this.lastTileX || ty !== this.lastTileY) {
       this.lastTileX = tx;
       this.lastTileY = ty;

@@ -422,7 +422,8 @@ export function getTerrain(seed: number): WorldTerrain {
         edge,
         smoothstep(0.63, 0.75, rockN) * (1 - cAmt) * smoothstep(3.5, 7, dR) * smoothstep(34, 46, dB) * (1 - smoothstep(0.05, 0.3, w)),
       );
-      let h = (fbm(x * 0.035, z * 0.035, seed + 51, 3) - 0.5) * 0.9;
+      // dry land sits a little above the water sheet; lakes/rivers dig below it
+      let h = (fbm(x * 0.035, z * 0.035, seed + 51, 3) - 0.5) * 0.6 + 0.1;
       const flat = smoothstep(2.2, 5, dR) * smoothstep(18, 28, dB);
       h = h * flat * (1 - edge) * (1 - cAmt) + rAmt * 2.6 - w * 1.5;
       height[k] = h;
@@ -447,7 +448,7 @@ export function getTerrain(seed: number): WorldTerrain {
       let t: number = TK.GRASS;
       if (dT <= D.BASE_TILE_RADIUS + 1.3) t = TK.BASE;
       else if (water[k] > 0.5) t = TK.WATER;
-      else if (maxW > 0.22) t = TK.SHORE;
+      else if (maxW > 0.12) t = TK.SHORE;
       else if (road[k] < 2.8) t = TK.ROAD;
       else if (city[k] > 0.08) t = hsh < 0.5 ? TK.RUIN : TK.RUBBLE;
       else if (rock[k] > 0.3) t = TK.ROCK;
@@ -690,8 +691,14 @@ export function zombieCombatants(level: number, variant: HordeVariant, seed = 1)
   for (let i = 0; i < 5; i++) {
     const u = P * shares[i] * (0.95 + rng() * 0.1);
     const model =
-      variant === 'boss' && i === 0 ? 'zombieBoss' : i < 2 && (variant !== 'normal' || level >= 6) ? 'zombieBrute' : 'zombie';
-    const name = model === 'zombieBoss' ? 'Blight Colossus' : model === 'zombieBrute' ? 'Mauler' : 'Shambler';
+      variant === 'boss' && i === 0
+        ? 'zombieBoss'
+        : i < 2 && (variant !== 'normal' || level >= 6)
+          ? 'zombieBrute'
+          : i === 4 && level >= 3
+            ? 'zombieRunner'
+            : 'zombie';
+    const name = model === 'zombieBoss' ? 'Blight Colossus' : model === 'zombieBrute' ? 'Mauler' : model === 'zombieRunner' ? 'Sprinter' : 'Shambler';
     const hp = Math.round(u * D.STAT_HP);
     out.push({
       uid: `z${i}`,
@@ -790,10 +797,12 @@ function findSpot(
   r = 0,
   angle?: number,
   spread = Math.PI * 2,
+  /** >1 biases spawns toward dMin (closer to the outpost). */
+  bias = 1,
 ): { tx: number; ty: number } | null {
   for (let i = 0; i < 80; i++) {
     const a = angle === undefined ? rng() * Math.PI * 2 : angle + (rng() - 0.5) * spread;
-    const d = dMin + rng() * Math.max(0, dMax - dMin);
+    const d = dMin + Math.pow(rng(), bias) * Math.max(0, dMax - dMin);
     const tx = Math.floor(MID + Math.cos(a) * d);
     const ty = Math.floor(MID + Math.sin(a) * d);
     if (tileFree(terrain, occ, tx, ty, r)) return { tx, ty };
@@ -815,7 +824,8 @@ function spawnHorde(
     dMin = Math.max(5, d - 3);
     dMax = Math.min(44, d + 3);
   }
-  const spot = findSpot(terrain, occ, rng, dMin, dMax);
+  // random hordes cluster a little toward the outpost so early levels are plentiful
+  const spot = findSpot(terrain, occ, rng, dMin, dMax, 0, undefined, Math.PI * 2, opts.level === undefined ? 1.5 : 1);
   if (!spot) return null;
   const d = tileDistance(spot.tx, spot.ty);
   const level = opts.level ?? Math.max(1, Math.min(D.MAX_HORDE_LEVEL, D.levelForDistance(d) + randInt(rng, -2, 2)));
@@ -913,6 +923,8 @@ export function generateWorld(s: GameState, t: number): void {
   for (let i = 0; i < D.RESOURCE_TARGET; i++) spawnResource(s, terrain, occ, rng);
   for (let i = 0; i < D.HORDE_TARGET; i++) spawnHorde(s, terrain, occ, rng);
   w.genVersion = D.WORLD_GEN_VERSION;
+  // guarantee targets at the player's frontier level right away
+  maintainWorld(s, t);
   w.lastMaintain = t;
   worldRev.entities++;
 }
@@ -929,8 +941,18 @@ export function maintainWorld(s: GameState, t: number): boolean {
   const w = s.world;
   const terrain = getTerrain(w.seed);
   const rng = mulberry32(hashSeed(`${w.seed}:${t}`));
-  const occ = buildOccupancy(s);
   let changed = false;
+  // self-heal: drop hordes/resources left on tiles that are no longer walkable (terrain tuning changes)
+  const n = D.MAP_TILES;
+  const before = w.entities.length;
+  w.entities = w.entities.filter(
+    (e) => e.kind === 'rival' || !!e.radarId || spawnable(terrain.kind[e.ty * n + e.tx]) || !!marchTargeting(s, e.id),
+  );
+  if (w.entities.length !== before) {
+    worldRev.entities++;
+    changed = true;
+  }
+  const occ = buildOccupancy(s);
   let hordes = 0;
   let res = 0;
   const atLevel = new Map<number, number>();
@@ -941,7 +963,7 @@ export function maintainWorld(s: GameState, t: number): boolean {
     } else if (e.kind === 'resource') res++;
   }
   const M = w.maxHordeLevel;
-  for (const L of [Math.max(1, M), M + 1]) {
+  for (const L of [Math.max(1, M), Math.max(2, M + 1)]) {
     if (L > D.MAX_HORDE_LEVEL) continue;
     for (let i = atLevel.get(L) ?? 0; i < D.HORDES_AT_FRONTIER; i++) {
       if (spawnHorde(s, terrain, occ, rng, { level: L, variant: 'normal' })) {
@@ -1008,7 +1030,7 @@ export function startMarch(s: GameState, squadId: number, entityId: string, t = 
   const len = Math.max(0.001, Math.hypot(c.x, c.z));
   const dx = c.x / len;
   const dz = c.z / len;
-  const stop = kind === 'attack' ? (e.kind === 'rival' ? 4.2 : 2.4) : 1.2;
+  const stop = kind === 'attack' ? (e.kind === 'rival' ? 5.6 : 2.4) : 1.2;
   const travel = travelMsTo(s, e.tx, e.ty);
   const troops = squadTroops(s, squadId);
   const m: March = {
@@ -1156,6 +1178,7 @@ function resolveAttack(s: GameState, m: March, at: number): void {
       loot.currencies = { ...(loot.currencies ?? {}), diamonds: (loot.currencies?.diamonds ?? 0) + bonus };
       note = `First Lv ${e.level} clear! +${bonus} diamonds. Lv ${Math.min(D.MAX_HORDE_LEVEL, e.level + 1)} unlocked.`;
       w.maxHordeLevel = e.level;
+      w.lastMaintain = 0; // top up the new frontier level on the next tick
     }
     kills = D.hordeZombieCount(e.level, e.variant);
     const mission = missionOf(s, e.radarId);
