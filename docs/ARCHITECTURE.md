@@ -82,7 +82,8 @@ You may create new files inside your own folders freely (e.g. `src/modes/runner/
 | id | owner | props | purpose |
 |---|---|---|---|
 | `rewards` | meta | `{ title?: string; reward: Reward }` | "You received" popup. Display only — caller grants first. |
-| `speedup` | meta | `{ title: string; getEndsAt: () => number \| null; apply: (ms: number) => void; onFinishNow?: () => void }` | Use speed-up items / diamonds on any timer. `apply(ms)` reduces the timer by ms; if it reaches 0 the owner's ticker completes it. |
+| `speedup` | meta | `{ title: string; getEndsAt: () => number \| null; apply: (ms: number) => void; onFinishNow?: () => void; price?: (ms: number) => number; freeFinishMs?: number }` | Use speed-up items / diamonds on any timer. `apply(ms)` reduces the timer by ms; if it reaches 0 the owner's ticker completes it. `price`/`freeFinishMs` let the owner's diamond pricing and free-finish window match its own panel. |
+| `featureUnlocked` | meta | `{ features: Feature[] }` | "New feature unlocked" popup with a Go button (shown once per feature, driven by `src/init/meta.ts`). |
 | `bag` | meta | — | Inventory; use items. |
 | `quests` | meta | — | Chapter quests. |
 | `daily` | meta | — | Daily tasks + activity chests. |

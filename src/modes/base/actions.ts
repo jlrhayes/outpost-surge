@@ -6,7 +6,7 @@ import { sfx } from '../../core/audio';
 import { fmt } from '../../core/format';
 import type { BuildingType, CurrencyId } from '../../core/types';
 import { Icon } from '../../ui/components/Icon';
-import { buildingName } from '../../data/buildings';
+import { buildingName, diamondsForMs } from '../../data/buildings';
 import {
   applySpeedup,
   buySecondBuilder,
@@ -14,6 +14,7 @@ import {
   constructBuilding,
   finishFree,
   finishNow,
+  freeFinishMs,
   getBuilding,
   instantUpgrade,
   startUpgrade,
@@ -97,8 +98,11 @@ export function openSpeedup(uid: string): void {
   openScreen('speedup', {
     title: `${buildingName(b.type)} Lv ${b.level + 1}`,
     getEndsAt: () => getBuilding(game, uid)?.upgradeEndsAt ?? null,
+    // applySpeedup() completes the upgrade itself when the timer hits 0, so no onFinishNow (it used to fire after
+    // the level-up and report "Nothing to finish"). Same diamond curve + free window as the building panel.
     apply: (ms: number) => applySpeedup(uid, ms),
-    onFinishNow: () => doFinishNow(uid),
+    price: diamondsForMs,
+    freeFinishMs: freeFinishMs(game),
   });
 }
 

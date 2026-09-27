@@ -18,9 +18,12 @@ import {
   marchBlocker,
   marchStatusLabel,
   marchTargeting,
+  hordeType,
   marchTimerEnd,
+  outpostDefencePower,
   recallMarch,
   rivalPower,
+  rivalTheme,
   safeSquadPower,
   speedUpMarch,
   squadLoad,
@@ -35,6 +38,8 @@ import {
 } from '../../systems/world';
 import { requestCam, selectedEntity, selectedMarch } from './bus';
 import { defaultSquad, hasScreen, PowerCompare, RewardList, Sheet, showRewards, SquadPicker, WIcon } from './parts';
+import { LineupTypes } from './defense';
+import { counterHint } from '../../systems/campaign';
 
 // ------------------------------------------------------------------ entity sheet
 
@@ -138,10 +143,16 @@ function CombatSheet(props: { s: GameState; e: WorldEntity & { kind: 'horde' | '
     const preview = D.hordeLootPreview(e.level, e.variant);
     const first = e.level > s.world.maxHordeLevel;
     const locked = e.level > s.world.maxHordeLevel + 1;
+    const htype = hordeType(e);
     body = (
       <>
         <div class="wm-tags">
           {e.variant !== 'normal' && <span class={'wm-tag wm-tag-' + e.variant}>{e.variant === 'boss' ? 'Boss' : 'Elite'}</span>}
+          {htype && (
+            <span class="wm-tag wm-tag-type">
+              <Icon name={'type_' + htype} size={14} /> {counterHint(htype)}
+            </span>
+          )}
           {e.radarId && <span class="wm-tag wm-tag-radar">Radar target</span>}
           <span class="wm-tag">~{D.hordeZombieCount(e.level, e.variant)} zombies</span>
           {locked && <span class="wm-tag wm-tag-lock">Locked</span>}
@@ -170,6 +181,7 @@ function CombatSheet(props: { s: GameState; e: WorldEntity & { kind: 'horde' | '
             </span>
           )}
         </div>
+        <LineupTypes theme={rivalTheme(e)} />
         <PowerCompare mine={mine} enemy={enemy} enemyLabel="Garrison" />
         <div class="wm-section-title">Plunder</div>
         <RewardList reward={D.rivalPlunderPreview(e.level)} />
@@ -357,6 +369,25 @@ function BaseSheet(props: { s: GameState; screenKey: number }) {
         <span>Highest horde defeated</span>
         <b>{s.world.maxHordeLevel ? `Lv ${s.world.maxHordeLevel}` : 'None yet'}</b>
       </div>
+      <button class="wm-defense-row" onClick={() => openScreen('outpostDefense')}>
+        <WIcon name="shield" size={20} />
+        <span class="wm-defense-main">
+          {s.world.raid.incoming ? (
+            <b class="bad">
+              Raid by {s.world.raid.incoming.label} in <Countdown endsAt={s.world.raid.incoming.arriveAt} />
+            </b>
+          ) : s.world.raid.shieldUntil > now() ? (
+            <span>
+              Shield up - <Countdown endsAt={s.world.raid.shieldUntil} />
+            </span>
+          ) : (
+            <span>Defence &amp; shields</span>
+          )}
+        </span>
+        <b>
+          <Icon name="power" size={14} /> {fmt(outpostDefencePower(s))}
+        </b>
+      </button>
       <div class="wm-section-title">Squads</div>
       <div class="wm-squad-list">
         {squads.map((id) => {

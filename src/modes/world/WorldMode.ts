@@ -18,10 +18,19 @@ import { buildTerrainView, type TerrainView } from './terrainView';
 import { EntityView, type PickPoint } from './entityView';
 import { MarchView } from './marchView';
 import { camRequest, camTile, requestCam, selectedEntity, selectedMarch, WORLD_SHEETS } from './bus';
+import { contextEpoch } from './gpuMemory';
+import { takePrebuiltTerrain } from './prewarm';
 import './world.css';
 
 const SKY = 0xb9c6b4;
 const DEFAULT_DIST = 66;
+/** Shadow frustum centre snaps to this grid (world units) so small pans don't re-render the shadow map. */
+const SHADOW_SNAP = 6;
+/** Largest half-size of the sun's shadow frustum (beyond it the fogged distance gets no shadows). */
+const SHADOW_MAX_EXT = 64;
+/** Zoom distances past which scenery decor / map entities stop casting shadows (with hysteresis). */
+const DECOR_SHADOW_DIST = 70;
+const ENTITY_SHADOW_DIST = 100;
 
 export class WorldMode implements GameMode {
   readonly scene = new THREE.Scene();
@@ -45,6 +54,14 @@ export class WorldMode implements GameMode {
   private lastTileX = -1;
   private lastTileY = -1;
   private time = 0;
+  private builtEpoch = -1;
+  // static shadows: the shadow map only re-renders when one of these changes
+  private shCx = NaN;
+  private shCz = NaN;
+  private shExt = 0;
+  private castDecor = true;
+  private castEntities = true;
+  private shEntRev = -1;
 
   constructor() {
     this.scene.background = new THREE.Color(SKY);
@@ -55,6 +72,9 @@ export class WorldMode implements GameMode {
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.04;
+    // Static shadows: nothing that moves casts (zombie crowds and march vehicles use ground blobs), so the
+    // shadow map is only re-rendered when the snapped frustum, zoom-dependent casters or the entity set change.
+    this.sun.shadow.autoUpdate = false;
     this.scene.add(this.sun, this.sun.target);
     this.rig.onTap = (x, y) => this.onTap(x, y);
     this.rig.onUserMove = () => {
@@ -65,13 +85,17 @@ export class WorldMode implements GameMode {
   private build(): void {
     const seed = game.world.seed;
     const q = game.settings.quality;
-    if (this.builtSeed === seed && this.builtQuality === q) return;
+    const epoch = contextEpoch();
+    if (this.builtSeed === seed && this.builtQuality === q && this.builtEpoch === epoch) return;
+    // A restored WebGL context needs the static scenery again (its CPU copy was freed after upload).
+    this.builtEpoch = epoch;
     const terrain = getTerrain(seed);
     if (this.terrainView) {
       this.scene.remove(this.terrainView.group);
       this.terrainView.dispose();
     }
-    this.terrainView = buildTerrainView(terrain, q);
+    // the base may have built it during idle time already (see prewarm.ts)
+    this.terrainView = takePrebuiltTerrain(seed, q) ?? buildTerrainView(terrain, q);
     this.scene.add(this.terrainView.group);
     if (this.builtSeed !== seed || !this.entities || !this.marches) {
       if (this.entities) {
@@ -83,23 +107,33 @@ export class WorldMode implements GameMode {
         this.marches.dispose();
       }
       this.entities = new EntityView(terrain);
+      this.castEntities = true; // a fresh entity view casts; updateShadows() re-applies the zoom rule
       this.marches = new MarchView(terrain);
       this.scene.add(this.entities.group, this.marches.group);
     }
     this.entities.setQuality(q);
     this.builtSeed = seed;
     this.builtQuality = q;
+    this.castDecor = true;
+    this.requestShadows();
+  }
+
+  private requestShadows(): void {
+    this.sun.shadow.needsUpdate = true;
   }
 
   enter(params: any): void {
     if (game.world.entities.length === 0 || game.world.genVersion === 0) mutate((s) => void ensureWorld(s, now()));
     this.build();
     this.applyQuality();
+    this.requestShadows();
     this.rig.attach();
     if (!this.entered) {
       this.entered = true;
       this.rig.flyTo(0, 5, DEFAULT_DIST, true);
     }
+    // decor right around the camera now; the rest streams in over the next frames (update())
+    this.terrainView?.buildDecorStep(6, this.rig.target.x, this.rig.target.z, this.castDecor);
     this.disposers.push(
       effect(() => {
         const r = camRequest.value;
@@ -164,6 +198,10 @@ export class WorldMode implements GameMode {
       return;
     }
     sfx.click();
+    if (best.kind === 'raid') {
+      openScreen('outpostDefense');
+      return;
+    }
     if (best.kind === 'march') {
       selectedMarch.value = best.id;
       openScreen('worldMarch', { id: best.id });
@@ -225,27 +263,55 @@ export class WorldMode implements GameMode {
     this.entities!.setView(v.minX, v.maxX, v.minZ, v.maxZ, this.rig.dist);
   }
 
-  /** Fits the sun's shadow frustum to the visible ground; decor stops casting when zoomed far out. */
+  /**
+   * Fits the sun's shadow frustum to the visible ground (capped, snapped) and toggles which layers cast.
+   * The shadow map is re-rendered only when something here (or the entity set) actually changed.
+   */
   private updateShadows(): void {
-    if (!this.sun.castShadow) return;
+    if (!this.sun.castShadow || !this.entities) return;
     const v = this.viewRect;
-    const cx = Math.max(-500, Math.min(500, (v.minX + v.maxX) / 2));
-    const cz = Math.max(-500, Math.min(500, (v.minZ + v.maxZ) / 2));
-    const ext = THREE.MathUtils.clamp(Math.max(v.maxX - v.minX, v.maxZ - v.minZ) * 0.55, 24, 120);
-    const sc = this.sun.shadow.camera;
-    if (Math.abs(sc.right - ext) > 0.5) {
+    const dist = this.rig.dist;
+    const castDecor = this.castDecor ? dist < DECOR_SHADOW_DIST : dist < DECOR_SHADOW_DIST - 5;
+    const castEntities = this.castEntities ? dist < ENTITY_SHADOW_DIST : dist < ENTITY_SHADOW_DIST - 5;
+    const span = Math.max(v.maxX - v.minX, v.maxZ - v.minZ);
+    // the sun is high (~58 deg): half the larger ground extent plus the snap slack covers the view
+    const ext = THREE.MathUtils.clamp(Math.ceil((span * 0.5 + SHADOW_SNAP) / 4) * 4, 24, SHADOW_MAX_EXT);
+    const cx = Math.round(THREE.MathUtils.clamp((v.minX + v.maxX) / 2, -500, 500) / SHADOW_SNAP) * SHADOW_SNAP;
+    const cz = Math.round(THREE.MathUtils.clamp((v.minZ + v.maxZ) / 2, -500, 500) / SHADOW_SNAP) * SHADOW_SNAP;
+    let dirty = false;
+    if (ext !== this.shExt) {
+      this.shExt = ext;
+      const sc = this.sun.shadow.camera;
       sc.left = -ext;
       sc.right = ext;
       sc.top = ext;
       sc.bottom = -ext;
       sc.updateProjectionMatrix();
+      dirty = true;
     }
-    this.sun.position.set(cx - 40, 80, cz + 30);
-    this.sun.target.position.set(cx, 0, cz);
-    const cast = this.rig.dist < 100;
-    if (this.terrainView && this.terrainView.decor[0] && this.terrainView.decor[0].castShadow !== cast) {
-      for (const d of this.terrainView.decor) d.castShadow = cast;
+    if (cx !== this.shCx || cz !== this.shCz) {
+      this.shCx = cx;
+      this.shCz = cz;
+      this.sun.position.set(cx - 40, 80, cz + 30);
+      this.sun.target.position.set(cx, 0, cz);
+      this.sun.target.updateMatrixWorld();
+      dirty = true;
     }
+    if (castDecor !== this.castDecor || (this.terrainView?.decor[0] && this.terrainView.decor[0].castShadow !== castDecor)) {
+      this.castDecor = castDecor;
+      if (this.terrainView) for (const d of this.terrainView.decor) d.castShadow = castDecor;
+      dirty = true;
+    }
+    if (castEntities !== this.castEntities) {
+      this.castEntities = castEntities;
+      this.entities.setCastShadows(castEntities);
+      dirty = true;
+    }
+    if (this.entities.shadowRev !== this.shEntRev) {
+      this.shEntRev = this.entities.shadowRev;
+      dirty = true;
+    }
+    if (dirty) this.requestShadows();
   }
 
   private screenDist(x: number, y: number, z: number, cx: number, cy: number): number {
@@ -260,7 +326,7 @@ export class WorldMode implements GameMode {
     const s = game;
     const t = now();
     this.time = elapsed;
-    if (this.builtQuality !== s.settings.quality) {
+    if (this.builtQuality !== s.settings.quality || this.builtEpoch !== contextEpoch()) {
       this.build();
       this.applyQuality();
     }
@@ -272,6 +338,8 @@ export class WorldMode implements GameMode {
     }
     this.rig.update(dt);
     const tg = this.rig.target;
+    const tv = this.terrainView;
+    if (tv && tv.pendingDecor > 0 && tv.buildDecorStep(4, tg.x, tg.z, this.castDecor) > 0 && this.castDecor) this.requestShadows();
 
     const fogNear = this.rig.dist * 1.6 + 40;
     const fog = this.scene.fog as THREE.Fog;

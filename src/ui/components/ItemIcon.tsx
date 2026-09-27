@@ -127,6 +127,22 @@ export function prettyId(id: string): string {
     .trim();
 }
 
+/** Bare icon + short amount for a reward entry (for one-line chips such as the quest tracker header). */
+export function rewardEntryChip(e: RewardEntry): { icon: string; text: string } {
+  switch (e.kind) {
+    case 'currency':
+      return { icon: e.id, text: fmt(e.amount) };
+    case 'item':
+      return { icon: itemDef(e.id).icon, text: '×' + fmt(e.amount) };
+    case 'troops':
+      return { icon: 'troops', text: fmt(e.amount) };
+    case 'shards':
+      return { icon: 'shard_ssr', text: '×' + fmt(e.amount) };
+    case 'hero':
+      return { icon: hero(e.id)?.icon ?? 'hero', text: 'Hero' };
+  }
+}
+
 export function rewardEntryName(e: RewardEntry): string {
   switch (e.kind) {
     case 'currency':

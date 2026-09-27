@@ -859,3 +859,139 @@
 .wm-potion-main {
   flex: 1;
 }
+
+/* ---------------- living world: stamina claims, raids, shields ---------------- */
+.wm-stam {
+  position: relative;
+}
+.wm-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff3a2a;
+  border: 2px solid #fff;
+}
+.wm-raid-pill,
+.wm-shield-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 3px 10px 3px 6px;
+  border-radius: 18px;
+  font-weight: 800;
+  font-size: 13px;
+  box-shadow: 0 2px 5px #0009;
+  text-shadow: 0 1px 1px #000;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.wm-raid-pill {
+  background: linear-gradient(#b3261af0, #6a1008f0);
+  border: 2px solid #ff8a6a;
+  animation: wm-raid-pulse 1.2s ease-in-out infinite;
+}
+.wm-shield-pill {
+  background: linear-gradient(#1f6fa8f0, #103a5cf0);
+  border: 2px solid #8ad8ff;
+}
+@keyframes wm-raid-pulse {
+  50% {
+    box-shadow: 0 0 14px #ff4a2acc;
+  }
+}
+.wm-claims {
+  display: flex;
+  gap: 8px;
+}
+.wm-claim {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 15px;
+}
+.wm-claim > b {
+  flex: 1;
+}
+.wm-claim.ready {
+  border-color: #6fe06f;
+  box-shadow: 0 0 8px #6fe06f55;
+}
+.wm-raid-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-color: #ec4b3c;
+  background: linear-gradient(#4a1510ee, #2a0c08ee);
+}
+.wm-raid-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.wm-raid-eta {
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffc8b8;
+}
+.wm-lineup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 12px;
+}
+.wm-lineup-name {
+  font-weight: 800;
+}
+.wm-lineup-icons {
+  display: inline-flex;
+  gap: 2px;
+}
+.wm-lineup-hint {
+  color: #ffd23c;
+  font-weight: 800;
+}
+.wm-stat-row b.good {
+  color: #8fe38f;
+}
+.wm-stat-row b.bad,
+.wm-defense-row b.bad {
+  color: #ff9a8a;
+}
+.wm-risk {
+  font-size: 12px;
+}
+.wm-section-title.bad {
+  color: #ff9a8a;
+}
+.wm-hud .wm-defense-row,
+.wm-defense-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid #5ab8ff66;
+  background: #16324ecc;
+  color: #fff;
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.wm-defense-main {
+  flex: 1;
+}
+.wm-tag-type {
+  background: #3a2a5a;
+  color: #ffe07a;
+  gap: 3px;
+}

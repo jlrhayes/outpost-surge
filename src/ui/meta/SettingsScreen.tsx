@@ -10,6 +10,10 @@ import { Icon } from '../components/Icon';
 import { Avatar, AVATAR_LOOKS } from '../components/Avatar';
 import { confirmDialog } from '../components/ConfirmModal';
 import { sfx } from '../../core/audio';
+import { buildingName } from '../../data/buildings';
+
+/** Quality the renderer was created with: anti-aliasing can only change when the WebGL context is recreated. */
+const bootQuality = game.settings.quality;
 
 function Row(props: { icon: string; label: string; children: preact.ComponentChildren; sub?: string }) {
   return (
@@ -79,14 +83,18 @@ export function SettingsScreen() {
         <Row icon="sound" label="Sound effects">
           <Toggle value={s.settings.sfx} onChange={(v) => mutate((st) => (st.settings.sfx = v))} />
         </Row>
-        <Row icon="music" label="Music">
-          <Toggle value={s.settings.music} onChange={(v) => mutate((st) => (st.settings.music = v))} />
-        </Row>
       </div>
 
       <SectionTitle>Graphics</SectionTitle>
       <div class="card set-card">
-        <Row icon="quality" label="Quality" sub={s.settings.quality === 'high' ? 'Shadows & full resolution' : 'Faster, saves battery'}>
+        <Row
+          icon="quality"
+          label="Quality"
+          sub={
+            (s.settings.quality === 'high' ? 'Shadows & full resolution' : 'Faster, saves battery') +
+            (s.settings.quality !== bootQuality ? ' · anti-aliasing changes after a restart' : '')
+          }
+        >
           <div class="seg">
             {(['low', 'high'] as const).map((q) => (
               <button
@@ -226,7 +234,7 @@ export function SettingsScreen() {
               onClick={() =>
                 confirmDialog({
                   title: 'Unlock everything?',
-                  text: 'Raises HQ to Lv 20 and clears the first districts so every feature unlocks. Dev only.',
+                  text: `Raises ${buildingName('hq')} to Lv 20 and clears the first districts so every feature unlocks. Dev only.`,
                   confirmLabel: 'Unlock',
                   color: 'yellow',
                   onConfirm: () => {

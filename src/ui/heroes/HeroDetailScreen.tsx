@@ -98,7 +98,7 @@ function LevelTab(props: { h: HeroState; d: HeroDef }) {
           Lv <b>{h.level}</b>
           <span class="dim-label"> / {cap}</span>
         </div>
-        <div class="dim-label">Level cap = 5 × HQ level (HQ {hqLevel(s)})</div>
+        <div class="dim-label">Level cap = 5 × {buildingName('hq')} level (Lv {hqLevel(s)})</div>
       </div>
       <Bar value={h.level} max={cap} color="linear-gradient(#8ef07a,#3cb030)" label={`${h.level} / ${cap}`} height={16} />
       <div class="exp-row">
@@ -119,7 +119,7 @@ function LevelTab(props: { h: HeroState; d: HeroDef }) {
         </div>
       )}
       {atCap ? (
-        <div class="cap-note">Level cap reached. Upgrade your HQ to raise it.</div>
+        <div class="cap-note">Level cap reached. Upgrade your {buildingName('hq')} to raise it.</div>
       ) : (
         <div class="btn-row">
           <Btn

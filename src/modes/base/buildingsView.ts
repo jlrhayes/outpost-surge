@@ -207,6 +207,7 @@ export class BuildingViews {
     if (i >= 0) this.hits.splice(i, 1);
     this.views.delete(v.uid);
     removeAnchor('b:' + v.uid);
+    removeAnchor('ah:' + v.uid);
     removeAnchor('bl:' + v.uid);
   }
 
@@ -278,14 +279,20 @@ export class BuildingViews {
       const x = v.plot.x;
       const z = v.plot.z;
       setAnchor('b:' + v.uid, x, v.height + 0.7, z);
+      // AI ally "Help" bubble beside the upgrade timer (LivingWorldHud)
+      setAnchor('ah:' + v.uid, x, v.height + 0.7, z);
       setAnchor('bl:' + v.uid, x + v.footprint * 0.3, 0.4, z + v.footprint * 0.52);
       if (this.selUid === v.uid) this.placeSelRing(v);
     }
     return changed;
   }
 
-  /** Per-frame animation: construction rising, bounces, selection pulse. */
-  update(dt: number, t: number, s: GameState): void {
+  /**
+   * Per-frame animation: construction rising, bounces, selection pulse.
+   * Returns how fast shadow-casting shapes are changing: 'fast' (bounce), 'slow' (construction rise) or null.
+   */
+  update(dt: number, t: number, s: GameState): 'fast' | 'slow' | null {
+    let anim: 'fast' | 'slow' | null = null;
     for (const v of this.views.values()) {
       if (!v.model) continue;
       let sy = 1;
@@ -294,10 +301,12 @@ export class BuildingViews {
         if (b && b.upgradeEndsAt !== null && b.upgradeStartedAt !== null) {
           const p = THREE.MathUtils.clamp((t - b.upgradeStartedAt) / Math.max(1, b.upgradeEndsAt - b.upgradeStartedAt), 0, 1);
           sy = 0.12 + 0.88 * p;
+          if (!anim) anim = 'slow';
         }
       }
       let sxz = 1;
       if (v.bounce > 0) {
+        anim = 'fast';
         v.bounce = Math.max(0, v.bounce - dt);
         const k = 1 - v.bounce / 0.45;
         const w = Math.sin(k * Math.PI * 2) * (1 - k) * 0.12;
@@ -312,6 +321,7 @@ export class BuildingViews {
       const mat = this.selRing.material as THREE.MeshBasicMaterial;
       mat.opacity = 0.55 + Math.sin(t * 5) * 0.3;
     }
+    return anim;
   }
 
   bounce(uid: string): void {

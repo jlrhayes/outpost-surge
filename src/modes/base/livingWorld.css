@@ -1,0 +1,116 @@
+/* OWNER: base agent (living world). Ally help bubbles + raid/shield chip over the base scene. */
+.lw-root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--font);
+}
+.lw-root.busy .lw-anchor {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.lw-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+  pointer-events: none;
+}
+/* sits just right of the (centred) upgrade timer that shares the building's top anchor */
+.lw-anchor > .lw-help {
+  position: absolute;
+  left: 46px;
+  bottom: 0;
+}
+.lw-root button {
+  font-family: var(--font);
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  color: #fff;
+}
+.lw-help {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 40% 35%, #5aa8f0, #1a5a9a);
+  border: 2px solid #fff !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  animation: lw-bob 1.6s ease-in-out infinite;
+}
+.lw-help:active {
+  transform: scale(0.92);
+}
+.lw-help-n {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border-radius: 9px;
+  background: #2fb84a;
+  border: 2px solid #fff;
+  font-size: 11px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@keyframes lw-bob {
+  50% {
+    transform: translateY(-3px);
+  }
+}
+/* right of the commander/power panel, left of the side button stack */
+.lw-chips {
+  position: absolute;
+  right: calc(max(8px, var(--safe-right)) + 66px);
+  top: calc(var(--safe-top) + 60px);
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+.lw-raid,
+.lw-shield {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  max-width: 140px;
+  padding: 4px 11px 4px 7px;
+  border-radius: 17px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 1px #000;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+.lw-raid span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lw-raid {
+  background: linear-gradient(#b3261af0, #6a1008f0);
+  border: 2px solid #ff8a6a !important;
+  animation: lw-raid-pulse 1.2s ease-in-out infinite;
+}
+.lw-shield {
+  background: linear-gradient(#1f6fa8f0, #103a5cf0);
+  border: 2px solid #8ad8ff !important;
+}
+@keyframes lw-raid-pulse {
+  50% {
+    box-shadow: 0 0 14px #ff4a2acc;
+  }
+}

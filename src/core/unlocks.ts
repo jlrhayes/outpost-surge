@@ -2,6 +2,7 @@
 // A feature unlocks when ALL its conditions are met. Tune here (lead-owned; ask before changing).
 import type { GameState } from './store';
 import { hqLevel } from '../systems/buildings';
+import { buildingName } from '../data/buildings';
 
 export type Feature =
   | 'campaign' // district-clearing auto-battles around the base
@@ -47,11 +48,11 @@ export function isUnlocked(s: GameState, f: Feature): boolean {
   return true;
 }
 
-/** Human-readable requirement, e.g. "Requires HQ 4". */
+/** Human-readable requirement, e.g. "Requires Command Post Lv 4". */
 export function unlockHint(f: Feature): string {
   const r = UNLOCKS[f];
   const parts: string[] = [];
-  if (r.hq) parts.push(`HQ ${r.hq}`);
-  if (r.districts) parts.push(`${r.districts} districts cleared`);
+  if (r.hq) parts.push(`${buildingName('hq')} Lv ${r.hq}`);
+  if (r.districts) parts.push(`${r.districts} district${r.districts > 1 ? 's' : ''} cleared`);
   return parts.length ? `Requires ${parts.join(' & ')}` : '';
 }

@@ -7,6 +7,7 @@ import { TK, type WorldTerrain } from '../../systems/world';
 import { mulberry32 } from '../../core/rng';
 import { propGeometry } from '../../three/models';
 import { deadTreeGeometry, mapPineGeometry, mapShrubGeometry, mapTreeGeometry, rockVariant, ROCK_VARIANTS, ruinedBlockBody, ruinGeometry, RUIN_VARIANTS } from './geo';
+import { int8Normals, releaseAfterUpload } from './gpuMemory';
 
 /** Terrain mesh chunks per side, and (finer) decor chunks per side, for frustum culling. */
 export const CHUNKS = 4;
@@ -47,6 +48,10 @@ function hashf(i: number, j: number): number {
   h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
+/** 0..1 float -> normalized Uint8. */
+function u8(v: number): number {
+  return v <= 0 ? 0 : v >= 1 ? 255 : Math.round(v * 255);
+}
 function sm(e0: number, e1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
   return t * t * (3 - 2 * t);
@@ -82,7 +87,7 @@ function buildTerrainChunk(t: WorldTerrain, ci: number, cj: number): THREE.Mesh 
   const cells = (t.gn - 1) / CHUNKS;
   const vn = cells + 1;
   const pos = new Float32Array(vn * vn * 3);
-  const col = new Float32Array(vn * vn * 3);
+  const col = new Uint8Array(vn * vn * 3);
   const c = new THREE.Color();
   for (let y = 0; y < vn; y++) {
     for (let x = 0; x < vn; x++) {
@@ -93,9 +98,9 @@ function buildTerrainChunk(t: WorldTerrain, ci: number, cj: number): THREE.Mesh 
       pos[v + 1] = t.height[j * t.gn + i];
       pos[v + 2] = -HALF + j * t.step;
       vertexColor(t, i, j, c);
-      col[v] = c.r;
-      col[v + 1] = c.g;
-      col[v + 2] = c.b;
+      col[v] = u8(c.r);
+      col[v + 1] = u8(c.g);
+      col[v + 2] = u8(c.b);
     }
   }
   const idx: number[] = [];
@@ -112,10 +117,12 @@ function buildTerrainChunk(t: WorldTerrain, ci: number, cj: number): THREE.Mesh 
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
   g.setIndex(idx);
   g.computeVertexNormals();
+  int8Normals(g);
   g.computeBoundingSphere();
+  releaseAfterUpload(g);
   const m = new THREE.Mesh(g, sceneryMaterial());
   m.receiveShadow = true;
   m.castShadow = false;
@@ -129,52 +136,81 @@ interface BatchItem {
   geom: THREE.BufferGeometry;
   m: THREE.Matrix4;
 }
-/** Accumulates transformed copies of vertex-coloured geometries and merges them into one geometry. */
+const tmpQ = new THREE.Quaternion();
+const tmpP = new THREE.Vector3();
+const tmpS = new THREE.Vector3();
+const tmpNM = new THREE.Matrix3();
+/**
+ * Accumulates transformed copies of vertex-coloured geometries and merges them into one geometry.
+ * Output is render-only: Float32 positions, normalized Int8 normals and normalized Uint8 colours
+ * (18 bytes/vertex instead of 36) — don't merge it with other geometry.
+ */
 export class Batch {
   items: BatchItem[] = [];
   verts = 0;
   add(geom: THREE.BufferGeometry, x: number, y: number, z: number, yaw: number, sx: number, sy = sx, sz = sx): void {
     const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
-    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, sz));
+    tmpQ.setFromAxisAngle(UP, yaw);
+    m.compose(tmpP.set(x, y, z), tmpQ, tmpS.set(sx, sy, sz));
     this.items.push({ geom, m });
     this.verts += geom.attributes.position.count;
   }
   build(): THREE.BufferGeometry | null {
     if (!this.items.length) return null;
     const pos = new Float32Array(this.verts * 3);
-    const nor = new Float32Array(this.verts * 3);
-    const col = new Float32Array(this.verts * 3);
-    const v = new THREE.Vector3();
-    const nm = new THREE.Matrix3();
+    const nor = new Int8Array(this.verts * 3);
+    const col = new Uint8Array(this.verts * 3);
     let o = 0;
     for (const it of this.items) {
       const p = it.geom.attributes.position as THREE.BufferAttribute;
       const n = it.geom.attributes.normal as THREE.BufferAttribute | undefined;
       const c = it.geom.attributes.color as THREE.BufferAttribute | undefined;
-      nm.getNormalMatrix(it.m);
+      const e = it.m.elements;
+      const ne = tmpNM.getNormalMatrix(it.m).elements;
+      // fast paths for the common layouts (plain float positions/normals, Uint8 or float colours)
+      const pa = p.array instanceof Float32Array && !p.normalized && p.itemSize === 3 ? p.array : null;
+      const na = n && n.array instanceof Float32Array && !n.normalized && n.itemSize === 3 ? n.array : null;
+      const cu8 = c && c.array instanceof Uint8Array && c.normalized && c.itemSize === 3 ? c.array : null;
+      const cf = c && c.array instanceof Float32Array && !c.normalized && c.itemSize === 3 ? c.array : null;
       for (let i = 0; i < p.count; i++, o += 3) {
-        v.fromBufferAttribute(p, i).applyMatrix4(it.m);
-        pos[o] = v.x;
-        pos[o + 1] = v.y;
-        pos[o + 2] = v.z;
+        const k = i * 3;
+        const x = pa ? pa[k] : p.getX(i);
+        const y = pa ? pa[k + 1] : p.getY(i);
+        const z = pa ? pa[k + 2] : p.getZ(i);
+        pos[o] = e[0] * x + e[4] * y + e[8] * z + e[12];
+        pos[o + 1] = e[1] * x + e[5] * y + e[9] * z + e[13];
+        pos[o + 2] = e[2] * x + e[6] * y + e[10] * z + e[14];
         if (n) {
-          v.fromBufferAttribute(n, i).applyMatrix3(nm).normalize();
-          nor[o] = v.x;
-          nor[o + 1] = v.y;
-          nor[o + 2] = v.z;
-        } else nor[o + 1] = 1;
-        if (c) {
-          col[o] = c.getX(i);
-          col[o + 1] = c.getY(i);
-          col[o + 2] = c.getZ(i);
-        } else col[o] = col[o + 1] = col[o + 2] = 1;
+          const a = na ? na[k] : n.getX(i);
+          const b = na ? na[k + 1] : n.getY(i);
+          const d = na ? na[k + 2] : n.getZ(i);
+          const nx = ne[0] * a + ne[3] * b + ne[6] * d;
+          const ny = ne[1] * a + ne[4] * b + ne[7] * d;
+          const nz = ne[2] * a + ne[5] * b + ne[8] * d;
+          const l = 127 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1);
+          nor[o] = Math.round(nx * l);
+          nor[o + 1] = Math.round(ny * l);
+          nor[o + 2] = Math.round(nz * l);
+        } else nor[o + 1] = 127;
+        if (cu8) {
+          col[o] = cu8[k];
+          col[o + 1] = cu8[k + 1];
+          col[o + 2] = cu8[k + 2];
+        } else if (cf) {
+          col[o] = u8(cf[k]);
+          col[o + 1] = u8(cf[k + 1]);
+          col[o + 2] = u8(cf[k + 2]);
+        } else if (c) {
+          col[o] = u8(c.getX(i));
+          col[o + 1] = u8(c.getY(i));
+          col[o + 2] = u8(c.getZ(i));
+        } else col[o] = col[o + 1] = col[o + 2] = 255;
       }
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3, true));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
     g.computeBoundingSphere();
     return g;
   }
@@ -306,7 +342,10 @@ function buildRoads(t: WorldTerrain): THREE.BufferGeometry {
   const pushQuad = (ax: number, az: number, bx: number, bz: number, cx: number, cz: number, dx: number, dz: number, y: number, c: THREE.Color) => {
     // a-b along the left edge (+normal side), c-d along the right edge; wound to face +Y
     pos.push(ax, y, az, bx, y, bz, cx, y, cz, bx, y, bz, dx, y, dz, cx, y, cz);
-    for (let i = 0; i < 6; i++) col.push(c.r, c.g, c.b);
+    const r = u8(c.r);
+    const gg = u8(c.g);
+    const b = u8(c.b);
+    for (let i = 0; i < 6; i++) col.push(r, gg, b);
   };
   const W = 1.35;
   const E = 1.65;
@@ -349,8 +388,9 @@ function buildRoads(t: WorldTerrain): THREE.BufferGeometry {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(col), 3, true));
   g.computeVertexNormals();
+  int8Normals(g);
   g.computeBoundingSphere();
   return g;
 }
@@ -361,9 +401,17 @@ export interface TerrainView {
   group: THREE.Group;
   grid: THREE.LineSegments;
   water: THREE.Mesh;
+  /** Vertices of decor built so far. */
   decorVerts: number;
-  /** Merged decor chunk meshes (shadow casting is toggled by zoom). */
+  /** Merged decor chunk meshes built so far (shadow casting is toggled by zoom). */
   decor: THREE.Mesh[];
+  /** Decor chunks not merged yet. */
+  readonly pendingDecor: number;
+  /**
+   * Merges pending decor chunks nearest to (x, z) until `budgetMs` is spent (always at least one).
+   * Returns how many chunk meshes were added.
+   */
+  buildDecorStep(budgetMs: number, x: number, z: number, cast: boolean): number;
   dispose(): void;
 }
 
@@ -401,6 +449,7 @@ export function buildTerrainView(t: WorldTerrain, quality: 'low' | 'high'): Terr
   const skirtGeo = new THREE.BufferGeometry();
   skirtGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
   skirtGeo.computeVertexNormals();
+  releaseAfterUpload(skirtGeo);
   const skirtMat = new THREE.MeshLambertMaterial({ color: EDGE_HEX });
   const skirt = new THREE.Mesh(skirtGeo, skirtMat);
   skirt.receiveShadow = true;
@@ -408,26 +457,19 @@ export function buildTerrainView(t: WorldTerrain, quality: 'low' | 'high'): Terr
   group.add(skirt);
   disposables.push(skirtGeo, skirtMat);
   // roads
-  const roadGeo = buildRoads(t);
+  const roadGeo = releaseAfterUpload(buildRoads(t));
   const roads = new THREE.Mesh(roadGeo, sceneryMaterial());
   roads.receiveShadow = true;
   group.add(roads);
   disposables.push(roadGeo);
-  // decor
-  let decorVerts = 0;
+  // decor: placement is cheap and done now; merging the (~0.5M vertex) chunk meshes is streamed in over the
+  // first frames, nearest to the camera first (see buildDecorStep), so entering the map doesn't stall.
   const decor: THREE.Mesh[] = [];
-  const batches = buildDecor(t, quality);
-  batches.forEach((b, i) => {
-    const g = b.build();
-    if (!g) return;
-    decorVerts += b.verts;
-    const m = new THREE.Mesh(g, sceneryMaterial());
-    m.castShadow = true;
-    m.receiveShadow = true;
-    m.name = 'decor_' + i;
-    group.add(m);
-    decor.push(m);
-    disposables.push(g);
+  const pending: { batch: Batch; i: number; x: number; z: number }[] = [];
+  const span = (HALF * 2) / DECOR_CHUNKS;
+  buildDecor(t, quality).forEach((batch, i) => {
+    if (!batch.items.length) return;
+    pending.push({ batch, i, x: -HALF + ((i % DECOR_CHUNKS) + 0.5) * span, z: -HALF + (Math.floor(i / DECOR_CHUNKS) + 0.5) * span });
   });
   // faint tile grid (tactical-map feel), faded in when zoomed in
   const gp: number[] = [];
@@ -443,14 +485,50 @@ export function buildTerrainView(t: WorldTerrain, quality: 'low' | 'high'): Terr
   grid.renderOrder = 2;
   group.add(grid);
   disposables.push(gridGeo, gridMat);
-  return {
+  const view: TerrainView = {
     group,
     grid,
     water,
-    decorVerts,
+    decorVerts: 0,
     decor,
+    get pendingDecor() {
+      return pending.length;
+    },
+    buildDecorStep(budgetMs, x, z, cast) {
+      const start = performance.now();
+      let built = 0;
+      while (pending.length && (built === 0 || performance.now() - start < budgetMs)) {
+        let k = 0;
+        let best = Infinity;
+        for (let j = 0; j < pending.length; j++) {
+          const d = (pending[j].x - x) ** 2 + (pending[j].z - z) ** 2;
+          if (d < best) {
+            best = d;
+            k = j;
+          }
+        }
+        const { batch, i } = pending[k];
+        pending.splice(k, 1);
+        const g = batch.build();
+        if (!g) continue;
+        built++;
+        // static, never picked (the map uses screen-space picking): the GPU copy is enough
+        releaseAfterUpload(g);
+        view.decorVerts += batch.verts;
+        const m = new THREE.Mesh(g, sceneryMaterial());
+        m.castShadow = cast;
+        m.receiveShadow = true;
+        m.name = 'decor_' + i;
+        group.add(m);
+        decor.push(m);
+        disposables.push(g);
+      }
+      return built;
+    },
     dispose() {
+      pending.length = 0;
       for (const d of disposables) d.dispose();
     },
   };
+  return view;
 }

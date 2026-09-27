@@ -1,5 +1,8 @@
 // OWNER: meta agent. 'speedup' screen: use speed-up items or diamonds on any timer.
-// Props contract: { title, getEndsAt: () => number | null, apply: (ms) => void, onFinishNow?: () => void }.
+// Props contract: { title, getEndsAt: () => number | null, apply: (ms) => void, onFinishNow?: () => void,
+//                  price?: (ms) => number, freeFinishMs?: number }.
+// `price`/`freeFinishMs` let the timer's owner make "Finish Instantly" agree with its own panels (same diamond
+// curve, free inside the owner's free-finish window).
 import { useEffect } from 'preact/hooks';
 import { game, mutate, useGame } from '../../core/store';
 import { clock, now, runTickers } from '../../core/tick';
@@ -20,7 +23,15 @@ export interface SpeedupProps {
   title: string;
   getEndsAt: () => number | null;
   apply: (ms: number) => void;
+  /**
+   * Called only if the timer reached 0 after a speed-up but the owner did not complete it by itself (its ticker
+   * will otherwise pick it up within a second). Owners whose `apply()` completes the job should omit it.
+   */
   onFinishNow?: () => void;
+  /** Diamonds to finish `ms` instantly (defaults to the meta curve `instantFinishCost`). */
+  price?: (ms: number) => number;
+  /** Timers with at most this much left can be finished for free (e.g. the builder free-finish window). */
+  freeFinishMs?: number;
   screenKey: number;
 }
 
@@ -43,11 +54,14 @@ export function SpeedupScreen(props: SpeedupProps) {
   const finishIfDone = () => {
     const e = props.getEndsAt();
     if (!e || e <= now()) {
-      if (props.onFinishNow) props.onFinishNow();
+      // Only nudge the owner while its timer still exists: apply() may already have completed the job.
+      if (e !== null && props.onFinishNow) props.onFinishNow();
       runTickers();
       sfx.upgrade();
     }
   };
+  const priceOf = (ms: number) => (ms <= 0 ? 0 : props.price ? props.price(ms) : instantFinishCost(ms));
+  const isFree = (ms: number) => props.freeFinishMs !== undefined && ms <= props.freeFinishMs;
 
   const useItems = (plan: Partial<Record<ItemId, number>>) => {
     let ms = 0;
@@ -71,21 +85,25 @@ export function SpeedupScreen(props: SpeedupProps) {
 
   const best = planSpeedups(s, remaining);
   const bestEntries = Object.entries(best.plan).filter(([, n]) => n) as [ItemId, number][];
-  const diamonds = instantFinishCost(remaining);
+  const free = isFree(remaining);
+  const diamonds = free ? 0 : priceOf(remaining);
 
   const finishNow = () => {
-    const cost = instantFinishCost(Math.max(0, (props.getEndsAt() ?? 0) - now()));
-    let ok = false;
-    mutate((st) => {
-      ok = spendIn(st, { diamonds: cost });
-    });
-    if (!ok) {
-      toast('Not enough Diamonds', 'bad');
-      return;
-    }
     const left = Math.max(0, (props.getEndsAt() ?? 0) - now());
+    const freeNow = isFree(left);
+    if (!freeNow) {
+      const cost = priceOf(left);
+      let ok = false;
+      mutate((st) => {
+        ok = spendIn(st, { diamonds: cost });
+      });
+      if (!ok) {
+        toast('Not enough Diamonds', 'bad');
+        return;
+      }
+    }
     props.apply(left + 1000);
-    emit('speedup:used', { minutes: Math.round(left / 60_000) });
+    if (!freeNow) emit('speedup:used', { minutes: Math.round(left / 60_000) });
     finishIfDone();
   };
 
@@ -150,26 +168,32 @@ export function SpeedupScreen(props: SpeedupProps) {
       <div class="speedup-instant">
         <div>
           <div class="speedup-best-title">Finish Instantly</div>
-          <div class="dim-text">Spend diamonds to complete right now</div>
+          <div class="dim-text">{free ? 'Inside the free-finish window: finish it now for free!' : 'Spend diamonds to complete right now'}</div>
         </div>
-        <Btn
-          color="purple"
-          disabled={s.currencies.diamonds < diamonds}
-          onClick={() =>
-            diamonds >= 100
-              ? confirmDialog({
-                  title: 'Finish Now?',
-                  text: `Spend ${diamonds} Diamonds to finish instantly?`,
-                  icon: 'diamonds',
-                  confirmLabel: 'Finish',
-                  color: 'purple',
-                  onConfirm: finishNow,
-                })
-              : finishNow()
-          }
-        >
-          <Icon name="diamonds" size={18} /> {diamonds}
-        </Btn>
+        {free ? (
+          <Btn color="green" onClick={finishNow}>
+            Free
+          </Btn>
+        ) : (
+          <Btn
+            color="purple"
+            disabled={s.currencies.diamonds < diamonds}
+            onClick={() =>
+              diamonds >= 100
+                ? confirmDialog({
+                    title: 'Finish Now?',
+                    text: `Spend ${diamonds} Diamonds to finish instantly?`,
+                    icon: 'diamonds',
+                    confirmLabel: 'Finish',
+                    color: 'purple',
+                    onConfirm: finishNow,
+                  })
+                : finishNow()
+            }
+          >
+            <Icon name="diamonds" size={18} /> {diamonds}
+          </Btn>
+        )}
       </div>
     </Modal>
   );

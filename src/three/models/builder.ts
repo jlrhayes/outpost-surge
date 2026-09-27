@@ -33,7 +33,47 @@ const tmpS = new THREE.Vector3();
 const tmpC = new THREE.Color();
 const baseC = new THREE.Color();
 
-/** Merge parts into one non-indexed geometry with a `color` attribute (flat-shaded look). */
+/**
+ * Vertex colours are stored as normalized Uint8 (3 bytes/vertex instead of 12). Values are clamped to 0..1.
+ * Returns the same geometry. No-op if it has no colour attribute or already uses Uint8.
+ */
+export function uint8Colors(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!c || (c as unknown as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) return g;
+  if (c.array instanceof Uint8Array && c.normalized) return g;
+  const n = c.count * c.itemSize;
+  const out = new Uint8Array(n);
+  const src = c.array as ArrayLike<number>;
+  if (!c.normalized) {
+    for (let i = 0; i < n; i++) {
+      const v = src[i];
+      out[i] = v <= 0 ? 0 : v >= 1 ? 255 : Math.round(v * 255);
+    }
+  } else {
+    for (let i = 0; i < c.count; i++) {
+      for (let k = 0; k < c.itemSize; k++) {
+        const v = c.getComponent(i, k);
+        out[i * c.itemSize + k] = v <= 0 ? 0 : v >= 1 ? 255 : Math.round(v * 255);
+      }
+    }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(out, c.itemSize, true));
+  return g;
+}
+
+/** Float32 copy of a (possibly normalized-integer) colour attribute, so it can be edited/merged with float colours. */
+function floatColors(g: THREE.BufferGeometry): void {
+  const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!c || c.array instanceof Float32Array) return;
+  const out = new Float32Array(c.count * c.itemSize);
+  for (let i = 0; i < c.count; i++) for (let k = 0; k < c.itemSize; k++) out[i * c.itemSize + k] = c.getComponent(i, k);
+  g.setAttribute('color', new THREE.BufferAttribute(out, c.itemSize));
+}
+
+/**
+ * Merge parts into one non-indexed geometry with a `color` attribute (flat-shaded look).
+ * The result's colours are normalized Uint8 (see uint8Colors); read them with getX()/getComponent().
+ */
 export function buildColored(parts: Part[]): THREE.BufferGeometry {
   const geoms: THREE.BufferGeometry[] = [];
   let seed = 918273;
@@ -43,6 +83,8 @@ export function buildColored(parts: Part[]): THREE.BufferGeometry {
     for (const name of Object.keys(g.attributes)) {
       if (name !== 'position' && name !== 'normal' && !(name === 'color' && p.color === undefined)) g.deleteAttribute(name);
     }
+    // composing cached (Uint8-coloured) models: merge in float, compact once at the end
+    floatColors(g);
     g.clearGroups();
     if (!g.getAttribute('normal')) g.computeVertexNormals();
     const pos = g.attributes.position as THREE.BufferAttribute;
@@ -88,7 +130,7 @@ export function buildColored(parts: Part[]): THREE.BufferGeometry {
   merged.computeVertexNormals();
   merged.computeBoundingSphere();
   merged.computeBoundingBox();
-  return merged;
+  return uint8Colors(merged);
 }
 
 function flipWinding(g: THREE.BufferGeometry): void {

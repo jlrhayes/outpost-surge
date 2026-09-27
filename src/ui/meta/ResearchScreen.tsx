@@ -6,7 +6,8 @@ import { emit } from '../../core/events';
 import { fmtDuration } from '../../core/format';
 import { focusBuilding, toast } from '../../core/nav';
 import { getBonus } from '../../core/bonuses';
-import { isUnlocked, unlockHint } from '../../core/unlocks';
+import { isUnlocked } from '../../core/unlocks';
+import { lockHint } from '../components/lockHint';
 import { sfx } from '../../core/audio';
 import { buildingLevel } from '../../systems/buildings';
 import { BRANCHES, TECH_BY_ID, bonusLines, scaleBonus, techsOf, type ResearchBranch, type TechDef } from '../../data/research';
@@ -31,7 +32,7 @@ export function ResearchScreen() {
       <Screen title="Research" icon="flask">
         <div class="empty-state">
           <Icon name={isUnlocked(s, 'research') ? 'flask' : 'lock'} size={72} />
-          <div>{isUnlocked(s, 'research') ? `Build a ${buildingName('tech')} to start researching.` : unlockHint('research')}</div>
+          <div>{isUnlocked(s, 'research') ? `Build a ${buildingName('tech')} to start researching.` : lockHint('research')}</div>
           {isUnlocked(s, 'research') && (
             <Btn color="blue" onClick={() => focusBuilding({ type: 'tech', openPanel: true })}>
               Go

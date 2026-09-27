@@ -75,10 +75,22 @@ export function markAnchorsDirty(): void {
 
 const tmp = new THREE.Vector3();
 
+/**
+ * Optional screen-space adjustment for anchors whose element has a `data-clamp` attribute: BaseOverlay installs it
+ * to keep call-to-action labels clear of HUD panels (see ./hudSafeArea.ts). Moves `pt` in place.
+ */
+export const anchorAdjust: {
+  fn: ((el: HTMLElement, pt: { x: number; y: number }, width: number, height: number) => void) | null;
+  /** Called once before each projection pass that may call `fn`. */
+  begin: (() => void) | null;
+} = { fn: null, begin: null };
+const adj = { x: 0, y: 0 };
+
 /** Projects all registered anchors. Cheap when neither the camera nor the anchors changed. */
 export function projectAnchors(camera: THREE.Camera, width: number, height: number, cameraMoved: boolean): void {
   if (!cameraMoved && !dirty) return;
   dirty = false;
+  anchorAdjust.begin?.();
   const margin = 80;
   for (const [key, a] of els) {
     const p = world.get(key);
@@ -92,6 +104,13 @@ export function projectAnchors(camera: THREE.Camera, width: number, height: numb
         y = (1 - tmp.y) * 0.5 * height;
         show = x > -margin && x < width + margin && y > -margin && y < height + margin;
       }
+    }
+    if (show && anchorAdjust.fn && a.el.hasAttribute('data-clamp')) {
+      adj.x = x;
+      adj.y = y;
+      anchorAdjust.fn(a.el, adj, width, height);
+      x = adj.x;
+      y = adj.y;
     }
     if (show !== a.shown) {
       a.shown = show;

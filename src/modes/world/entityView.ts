@@ -25,7 +25,7 @@ import type { PropKind } from '../../three/models';
 
 export interface PickPoint {
   id: string;
-  kind: 'entity' | 'base' | 'march';
+  kind: 'entity' | 'base' | 'march' | 'raid';
   x: number;
   y: number;
   z: number;
@@ -76,6 +76,8 @@ export class EntityView {
   private rivals = new Map<string, { group: THREE.Group; shield: THREE.Mesh; level: number }>();
   private shieldMat = new THREE.MeshBasicMaterial({ color: 0x8ad8ff, transparent: true, opacity: 0.22, depthWrite: false });
   private shieldGeo = new THREE.SphereGeometry(5.6, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  /** Dome over the player's own outpost while its raid shield is up. */
+  private baseShield: THREE.Mesh;
   /** Waving flags (animated with the art library's animateModel). */
   private flags: THREE.Object3D[] = [];
   private baseGroup = new THREE.Group();
@@ -90,6 +92,9 @@ export class EntityView {
   private quality: 'low' | 'high' = 'high';
   private lastShieldCheck = 0;
   selectedId: string | null = null;
+  /** Bumped whenever shadow-casting geometry changed (the mode then re-renders its static shadow map). */
+  shadowRev = 0;
+  private castOn = true;
   /** Visible ground rectangle (+margin): zombie instances outside it are not submitted. */
   private view = { minX: -1e9, maxX: 1e9, minZ: -1e9, maxZ: 1e9 };
   /** Zombies drawn per horde (fewer when zoomed far out). */
@@ -97,8 +102,9 @@ export class EntityView {
 
   constructor(private terrain: WorldTerrain) {
     const mat = vcMaterial();
-    this.walkers = instanced(zombieGeometry('walker'), mat, MAX_WALKERS);
-    this.brutes = instanced(zombieGeometry('brute'), mat, MAX_BRUTES);
+    // crowds shuffle every frame: they don't cast (the dark ground decal under each horde is their shadow)
+    this.walkers = instanced(zombieGeometry('walker'), mat, MAX_WALKERS, false);
+    this.brutes = instanced(zombieGeometry('brute'), mat, MAX_BRUTES, false);
     const decalGeo = new THREE.CircleGeometry(1, 14);
     decalGeo.rotateX(-Math.PI / 2);
     const decalMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false });
@@ -120,6 +126,11 @@ export class EntityView {
     this.ring.visible = false;
     this.ring.renderOrder = 4;
     this.group.add(this.ring, this.baseGroup);
+    this.baseShield = new THREE.Mesh(this.shieldGeo, this.shieldMat);
+    this.baseShield.scale.setScalar(12 / 5.6);
+    this.baseShield.renderOrder = 5;
+    this.baseShield.visible = false;
+    this.group.add(this.baseShield);
     this.group.add(this.badges.mesh);
   }
 
@@ -290,6 +301,16 @@ export class EntityView {
     if (this.decals.instanceColor) this.decals.instanceColor.needsUpdate = true;
     this.writeZombies(0, true);
     this.updateRing(s);
+    this.shadowRev++;
+  }
+
+  /** Static casters (resource nodes, pickups, rival outposts, own outpost) on/off, e.g. when zoomed far out. */
+  setCastShadows(on: boolean): void {
+    if (on === this.castOn) return;
+    this.castOn = on;
+    for (const m of [this.res.food, this.res.iron, this.res.gold, this.camps, this.caches, this.digs]) m.castShadow = on;
+    for (const r of this.rivals.values()) setCast(r.group, on);
+    setCast(this.baseGroup, on);
   }
 
   private pushZombie(arr: Float32Array, i: number, x: number, y: number, z: number, yaw: number, scale: number, phase: number, rank: number): void {
@@ -364,6 +385,9 @@ export class EntityView {
       shield.renderOrder = 5;
       g.add(shield);
       g.rotation.y = (hashSeed(e.id) % 4) * (Math.PI / 2);
+      setCast(g, this.castOn);
+      setCast(flag, false); // waving: would need a shadow re-render every frame
+      this.shadowRev++;
       this.group.add(g);
       r = { group: g, shield, level: lv };
       this.rivals.set(e.id, r);
@@ -447,12 +471,15 @@ export class EntityView {
       f.scale.setScalar(1.3);
       this.baseGroup.add(f);
       this.flags.push(f);
-    }    this.baseGroup.traverse((o) => {
+    }
+    this.baseGroup.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
-        o.castShadow = true;
+        o.castShadow = this.castOn;
         o.receiveShadow = true;
       }
     });
+    for (const f of this.flags) if (f.parent === this.baseGroup) setCast(f, false);
+    this.shadowRev++;
     this.rev = -1; // refresh the base badge
   }
 
@@ -530,6 +557,7 @@ export class EntityView {
         const r = this.rivals.get(e.id);
         if (r) r.shield.visible = e.shieldUntil > t;
       }
+      this.baseShield.visible = s.world.raid.shieldUntil > t;
     }
     this.badges.setFrame(uiScale, time);
   }
@@ -545,6 +573,16 @@ export class EntityView {
     (this.ring.material as THREE.Material).dispose();
     for (const m of [this.walkers, this.brutes, this.decals, this.res.food, this.res.iron, this.res.gold, this.camps, this.caches, this.digs]) m.dispose();
   }
+}
+
+function setCast(o: THREE.Object3D, on: boolean): void {
+  o.traverse((c) => {
+    const m = c as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mat = m.material as THREE.Material | THREE.Material[];
+    // translucent bits (shield domes) never cast
+    if (!(Array.isArray(mat) ? mat.some((x) => x.transparent) : mat.transparent)) m.castShadow = on;
+  });
 }
 
 // ------------------------------------------------------------------ badge styles

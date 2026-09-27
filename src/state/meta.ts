@@ -41,6 +41,8 @@ export interface MetaState {
   quests: { index: number; claimed: string[] };
   /** Daily tasks: `date` = local day key; progress per task id; claimed task ids; claimed chest indices. */
   daily: { date: string; progress: Record<string, number>; claimed: string[]; chests: number[] };
+  /** Features whose "New feature unlocked" popup was shown (plus '_init' once existing unlocks were recorded). */
+  unlocksSeen: string[];
 }
 
 export function defaultMetaState(): MetaState {
@@ -53,5 +55,6 @@ export function defaultMetaState(): MetaState {
     researchJob: null,
     quests: { index: 0, claimed: [] },
     daily: { date: '', progress: {}, claimed: [], chests: [] },
+    unlocksSeen: [],
   };
 }

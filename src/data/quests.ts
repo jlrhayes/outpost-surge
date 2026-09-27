@@ -61,8 +61,14 @@ const res = (food: number, iron: number, extra: Reward = {}): Reward => ({
   currencies: { food, iron, ...(extra.currencies ?? {}) },
 });
 
+/** "a" / "an" for a following word ("an Iron Quarry", "a Greenhouse Farm"). */
+function article(word: string): string {
+  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+}
+
 function build(ch: number, type: BuildingType, reward: Reward): QuestDef {
-  return q(ch, `Build a ${BUILDING_LABEL[type]}`, 1, (s) => Math.min(1, buildingLevel(s, type)), reward, { kind: 'building', type, openPanel: true });
+  const name = BUILDING_LABEL[type];
+  return q(ch, `Build ${article(name)} ${name}`, 1, (s) => Math.min(1, buildingLevel(s, type)), reward, { kind: 'building', type, openPanel: true });
 }
 function upgrade(ch: number, type: BuildingType, level: number, reward: Reward): QuestDef {
   return q(ch, `Upgrade ${BUILDING_LABEL[type]} to Lv ${level}`, level, (s) => buildingLevel(s, type), reward, { kind: 'building', type, openPanel: true });

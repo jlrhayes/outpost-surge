@@ -190,7 +190,7 @@ button {
 .btn-small {
   font-size: 14px;
   padding: 5px 11px 7px;
-  min-height: 36px;
+  min-height: 40px;
   border-radius: 10px;
 }
 .btn-big {
@@ -283,21 +283,44 @@ button {
 .screen-close {
   position: absolute;
   right: 8px;
-  top: 7px;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  top: 5px;
+}
+/* One close-button look everywhere: full screens, modals and world sheets (.wm-sheet-close, world module). */
+.screen-close,
+.modal-close,
+html .wm-sheet-close {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 11px;
   border: 2px solid var(--outline);
   background: linear-gradient(#ff907f, var(--red) 50%, var(--red-dark));
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.4),
     inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
 }
-.screen-close:active {
+html .wm-sheet-close {
+  position: relative;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: var(--text-stroke);
+}
+.screen-close::after,
+.modal-close::after,
+html .wm-sheet-close::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+.screen-close:active,
+.modal-close:active,
+html .wm-sheet-close:active {
   transform: scale(0.94);
 }
 .screen-body {
@@ -361,7 +384,7 @@ button {
   font-size: 20px;
   font-weight: 900;
   text-align: center;
-  margin: -2px 32px 12px;
+  margin: 0 44px 12px;
   text-shadow: var(--text-stroke);
   color: #fff4c8;
 }
@@ -369,15 +392,6 @@ button {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  border: 2px solid var(--outline);
-  background: linear-gradient(#ff907f, var(--red) 50%, var(--red-dark));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
   z-index: 2;
 }
 .modal-actions {
@@ -530,7 +544,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 6px 4px;
   font-weight: 900;
   font-size: 13px;
@@ -695,7 +709,7 @@ button.tile:active .tile-frame {
   border-radius: 8px 0 8px 0;
   background: var(--outline);
   color: #ffd86a;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
 }
 .tile-label {
@@ -721,7 +735,7 @@ button.tile:active .tile-frame {
   gap: 4px;
 }
 .reward-inline .tile-count {
-  font-size: 9px;
+  font-size: 11px;
 }
 .pop-in {
   animation: pop-in 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.5) both;
@@ -746,8 +760,8 @@ button.tile:active .tile-frame {
 .qty-btn,
 .qty-max {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 10px;
   border: 2px solid var(--outline);
   background: linear-gradient(#86ccff, var(--blue) 50%, var(--blue-dark));
@@ -882,8 +896,8 @@ button.tile:active .tile-frame {
 /* ---------- Toggle / segmented / inputs ---------- */
 .toggle {
   position: relative;
-  width: 58px;
-  height: 32px;
+  width: 60px;
+  height: 34px;
   border-radius: 16px;
   border: 2px solid var(--outline);
   background: #3a4a5a;
@@ -896,8 +910,8 @@ button.tile:active .tile-frame {
 }
 .toggle-knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 3px;
+  left: 3px;
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -906,7 +920,12 @@ button.tile:active .tile-frame {
   transition: left 0.15s;
 }
 .toggle.on .toggle-knob {
-  left: 28px;
+  left: 29px;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
 }
 .seg {
   display: flex;
@@ -916,7 +935,7 @@ button.tile:active .tile-frame {
 }
 .seg-btn {
   min-width: 56px;
-  min-height: 34px;
+  min-height: 40px;
   border: none;
   border-radius: 9px;
   background: transparent;
@@ -989,6 +1008,126 @@ button.tile:active .tile-frame {
   }
 }
 
+/* =====================================================================================================
+   Cross-module accessibility overrides (touch targets >= 40-44 px, text >= 11 px, unified tabs).
+   These classes belong to other modules' stylesheets; the `html` prefix out-ranks their single-class rules
+   without editing their files. Keep visuals compact and enlarge hit areas with invisible ::after boxes.
+   ===================================================================================================== */
+
+/* Tabs: one height and look for shared .tab, formation squad tabs and Special Ops chapter tabs. */
+html .squad-tab,
+html .rn-ch-tab {
+  position: relative;
+  min-height: 44px;
+  height: auto;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background: linear-gradient(#253c54, #1a2c3e);
+  color: var(--text-dim);
+  font-weight: 900;
+}
+html .squad-tab.active,
+html .rn-ch-tab.active {
+  color: #3a2400;
+  background: linear-gradient(#ffe98a, var(--yellow) 50%, #f0a800);
+  border-color: var(--outline);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5);
+  text-shadow: none;
+}
+
+/* Hero detail prev/next arrows: 30 px wide visual, 44 px wide hit area. */
+html .hd-nav::after {
+  content: '';
+  position: absolute;
+  inset: -4px -7px;
+}
+
+/* World map: stamina chip (36 px) gets a taller invisible hit area. */
+html .wm-stam {
+  position: relative;
+}
+html .wm-stam::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+}
+
+/* World map: tile-count search slider was 16 px tall. */
+html .wm-slider {
+  height: 40px;
+  margin: 0;
+}
+
+/* Minimum readable text (was 9-10 px). */
+html .hc-rarity,
+html .hc-badge,
+html .fs-label,
+html .bonus-legend,
+html .ec-name,
+html .ec-count,
+html .rv-new,
+html .rv-dup,
+html .dc-boss.small,
+html .wm-stam-next,
+html .wm-side-label,
+html .wm-vs-verdict,
+html .wm-mission-elite,
+html .tb-text,
+html .bbar-name {
+  font-size: 11px;
+}
+html .bbar-name {
+  line-height: 13px;
+  height: 13px;
+}
+html .tb-text {
+  line-height: 13px;
+}
+html .wm-mission-elite {
+  bottom: -7px;
+  line-height: 14px;
+}
+
+/* Formation on short phones (360x640): compact the 5-slot field so the hero roster is visible above the footer. */
+@media (max-height: 700px) {
+  html .formation-screen .squad-tabs {
+    margin-bottom: 6px;
+  }
+  html .formation-screen .field {
+    padding: 20px 6px 8px;
+  }
+  html .formation-screen .field-row.front {
+    margin-bottom: 8px;
+  }
+  html .formation-screen .f-slot {
+    width: 70px;
+    height: 80px;
+  }
+  html .formation-screen .f-slot .hp-frame {
+    width: 60px !important;
+    height: 60px !important;
+  }
+  html .formation-screen .f-slot .hp-frame svg {
+    width: 54px;
+    height: 54px;
+  }
+  html .formation-screen .fs-plus {
+    line-height: 58px;
+  }
+  html .formation-screen .fs-lv {
+    top: 44px;
+  }
+  html .formation-screen .fs-stars {
+    top: 46px;
+  }
+  html .formation-screen .squad-info {
+    margin: 6px 0 4px;
+    padding: 6px 8px;
+  }
+  html .formation-screen .screen-body {
+    padding-top: 10px;
+  }
+}
 
 /* ---------- Loading veil (first visit to a heavy mode) ---------- */
 #veil {

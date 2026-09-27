@@ -9,6 +9,7 @@ import { sfx } from '../../core/audio';
 import { Icon } from '../../ui/components/Icon';
 import { ResourceBar } from '../../ui/components/ResourceBar';
 import {
+  freeStaminaReady,
   marchPosition,
   marchStatusLabel,
   marchTimerEnd,
@@ -97,9 +98,41 @@ function TopBar(props: { s: GameState; t: number }) {
           <small>/{max}</small>
         </span>
         {next !== null && <span class="wm-stam-next">+1 {fmtDuration(next - t)}</span>}
+        {freeStaminaReady(s, t) > 0 && <span class="wm-dot" />}
       </button>
+      <DefensePills s={s} t={t} />
       </div>
     </div>
+  );
+}
+
+/** Announced rival raid (countdown) / active outpost shield; both open the defence panel. */
+export function DefensePills(props: { s: GameState; t: number }) {
+  const { s, t } = props;
+  const inc = s.world.raid.incoming;
+  const shield = s.world.raid.shieldUntil > t ? s.world.raid.shieldUntil : 0;
+  if (!inc && !shield) return null;
+  const open = () => {
+    sfx.click();
+    openScreen('outpostDefense');
+  };
+  return (
+    <>
+      {inc && (
+        <button class="wm-raid-pill" onClick={open}>
+          <WIcon name="swords" size={18} />
+          <span class="wm-raid-pill-text">
+            <b>Raid</b> {fmtDuration(Math.max(0, inc.arriveAt - t))}
+          </span>
+        </button>
+      )}
+      {shield > 0 && (
+        <button class="wm-shield-pill" onClick={open} aria-label="Outpost shield">
+          <WIcon name="shield" size={18} />
+          <span>{fmtDuration(shield - t)}</span>
+        </button>
+      )}
+    </>
   );
 }
 

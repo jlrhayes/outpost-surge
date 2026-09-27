@@ -3,7 +3,8 @@ import { game, mutate, type GameState } from '../core/store';
 import { grantIn } from '../core/economy';
 import { emit } from '../core/events';
 import { closeAllScreens, focusBuilding, goTo, openScreen, route, toast } from '../core/nav';
-import { isUnlocked, unlockHint } from '../core/unlocks';
+import { isUnlocked } from '../core/unlocks';
+import { lockHint } from '../ui/components/lockHint';
 import { sfx } from '../core/audio';
 import { buildingLevel, buildingsOf } from './buildings';
 import { getChapter, type ChapterDef, type QuestDef, type QuestGo } from '../data/quests';
@@ -100,7 +101,7 @@ export function questGo(go: QuestGo | undefined): void {
       return;
     case 'screen':
       if (go.feature && !isUnlocked(s, go.feature)) {
-        toast(unlockHint(go.feature), 'bad');
+        toast(lockHint(go.feature), 'bad');
         return;
       }
       ensureBase();
@@ -108,7 +109,7 @@ export function questGo(go: QuestGo | undefined): void {
       return;
     case 'mode':
       if (go.feature && !isUnlocked(s, go.feature)) {
-        toast(unlockHint(go.feature), 'bad');
+        toast(lockHint(go.feature), 'bad');
         return;
       }
       goTo(go.mode, go.params);
@@ -131,7 +132,7 @@ export function questGo(go: QuestGo | undefined): void {
     }
     case 'research':
       if (!isUnlocked(s, 'research')) {
-        toast(unlockHint('research'), 'bad');
+        toast(lockHint('research'), 'bad');
         return;
       }
       if (buildingLevel(s, 'tech') >= 1) {

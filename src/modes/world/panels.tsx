@@ -1,12 +1,14 @@
 // OWNER: world agent. World overlay screens: radar board ('radar'), battle reports ('worldReports'),
 // search ('worldSearch') and stamina ('worldStamina').
 import { useEffect, useState } from 'preact/hooks';
+import { sfx } from '../../core/audio';
 import { game, mutate, useGame } from '../../core/store';
 import { closeScreen, openScreen, toast } from '../../core/nav';
 import { clock, now } from '../../core/tick';
 import { fmt, fmtDuration } from '../../core/format';
 import { useItem } from '../../systems/items';
 import { itemDef } from '../../data/items';
+import { isEmptyReward } from '../../core/economy';
 import { ItemIcon } from '../../ui/components/ItemIcon';
 import { isUnlocked, unlockHint } from '../../core/unlocks';
 import { Bar, Btn, Countdown, Modal, Screen, Tabs } from '../../ui/components/common';
@@ -15,6 +17,8 @@ import { startBattle } from '../../systems/battle';
 import * as D from '../../data/world';
 import {
   settleStamina,
+  claimFreeStaminaIn,
+  staminaClaimSlots,
   claimRadarMission,
   coordLabel,
   entityById,
@@ -189,8 +193,9 @@ export function ReportsScreen(props: { screenKey: number }) {
 function ReportCard(props: { r: WorldReport; open: boolean; onToggle: () => void }) {
   const { r } = props;
   const t = now();
-  const fight = r.kind === 'horde' || r.kind === 'rival';
-  const badge = fight ? (r.win ? 'Victory' : 'Defeat') : r.kind === 'gather' ? 'Gathered' : 'Treasure';
+  const defense = r.kind === 'defense';
+  const fight = r.kind === 'horde' || r.kind === 'rival' || defense;
+  const badge = defense ? (r.win ? 'Defended' : 'Raided') : fight ? (r.win ? 'Victory' : 'Defeat') : r.kind === 'gather' ? 'Gathered' : 'Treasure';
   const cls = fight ? (r.win ? 'win' : 'lose') : 'neutral';
   const replay = () =>
     startBattle({
@@ -198,7 +203,7 @@ function ReportCard(props: { r: WorldReport; open: boolean; onToggle: () => void
       attackers: JSON.parse(JSON.stringify(r.attackers)),
       defenders: JSON.parse(JSON.stringify(r.defenders)),
       seed: r.seed,
-      arena: r.kind === 'rival' ? 'city' : 'wasteland',
+      arena: r.kind === 'rival' || defense ? 'city' : 'wasteland',
       returnTo: 'world',
       onFinish: () => {},
     });
@@ -214,7 +219,7 @@ function ReportCard(props: { r: WorldReport; open: boolean; onToggle: () => void
           {fight && (
             <div class="wm-report-grid">
               <div>
-                <div class="wm-dim small">Squad {r.squadId}</div>
+                <div class="wm-dim small">{defense ? (r.squadId ? 'Squad 1 + Wall' : 'Wall guns') : `Squad ${r.squadId}`}</div>
                 <b>
                   <Icon name="power" size={14} /> {r.power > 0 ? fmt(r.power) : '—'}
                 </b>
@@ -239,12 +244,20 @@ function ReportCard(props: { r: WorldReport; open: boolean; onToggle: () => void
               )}
             </div>
           )}
-          <div class="wm-section-title">{fight ? 'Loot' : 'Reward'}</div>
-          <RewardList reward={r.loot} />
-          {r.note && <div class="wm-info">{r.note}</div>}
-          {fight && (
-            !r.win && <div class="wm-dim small">Train more soldiers or strengthen your heroes, then try again.</div>
+          {!(defense && isEmptyReward(r.loot)) && (
+            <>
+              <div class="wm-section-title">{defense ? 'Salvage' : fight ? 'Loot' : 'Reward'}</div>
+              <RewardList reward={r.loot} />
+            </>
           )}
+          {r.lost && !isEmptyReward(r.lost) && (
+            <>
+              <div class="wm-section-title bad">Resources lost</div>
+              <RewardList reward={r.lost} />
+            </>
+          )}
+          {r.note && <div class="wm-info">{r.note}</div>}
+          {fight && !defense && !r.win && <div class="wm-dim small">Train more soldiers or strengthen your heroes, then try again.</div>}
           {fight && r.attackers.length > 0 && r.defenders.length > 0 && (
             <div class="wm-actions">
               <Btn color="blue" small onClick={replay}>
@@ -353,6 +366,16 @@ export function StaminaModal(props: { screenKey: number }) {
     mutate((st) => void settleStamina(st, now()));
     useItem('stamina_potion', 1);
   };
+  const claimFree = () => {
+    let ok = false;
+    mutate((st) => {
+      ok = claimFreeStaminaIn(st, now());
+    });
+    if (ok) {
+      sfx.reward();
+      toast(`+${D.STAMINA_CLAIM_AMOUNT} stamina`, 'good');
+    }
+  };
   return (
     <Modal title="Stamina" onClose={() => closeScreen(props.screenKey)}>
       <div class="wm-stamina-big">
@@ -369,6 +392,25 @@ export function StaminaModal(props: { screenKey: number }) {
       <div class="wm-dim small wm-center">
         Attacks cost {D.STAMINA_COST.normal} (elites &amp; bosses {D.STAMINA_COST.elite}).
       </div>
+      <div class="wm-section-title">Free supply drops</div>
+      <div class="wm-claims">
+        {staminaClaimSlots(s).map((at, i) => (
+          <div class={'wm-claim card' + (at <= t ? ' ready' : '')} key={i}>
+            <Icon name="stamina" size={30} />
+            <b>+{D.STAMINA_CLAIM_AMOUNT}</b>
+            {at <= t ? (
+              <Btn color="green" small onClick={claimFree}>
+                Claim
+              </Btn>
+            ) : (
+              <span class="wm-dim small">
+                <Countdown endsAt={at} />
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+      <div class="wm-dim small wm-center">Each drop refills {fmtDuration(D.STAMINA_CLAIM_COOLDOWN_MS)} after you claim it.</div>
       <div class="wm-potion card">
         <ItemIcon id="stamina_potion" size={40} />
         <div class="wm-potion-main">
