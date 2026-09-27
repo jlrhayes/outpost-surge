@@ -199,6 +199,8 @@ export const TK = {
   ROAD: 6,
   BASE: 7,
   ROCK: 8,
+  /** Covered by a 3x3-tile ruined city block model. */
+  BLOCK: 9,
 } as const;
 
 export interface WorldTerrain {
@@ -220,6 +222,8 @@ export interface WorldTerrain {
   roads: number[][];
   river: number[];
   cities: { x: number; z: number; r: number }[];
+  /** Ruined city blocks (3x3 tiles each) centred on these tiles. */
+  blocks: { tx: number; ty: number; seed: number }[];
 }
 
 function hash2(ix: number, iy: number, seed: number): number {
@@ -339,7 +343,7 @@ function genNetwork(seed: number) {
   for (let tries = 0; tries < 80 && cities.length < 6; tries++) {
     const ang = rng() * Math.PI * 2;
     const d = 44 + rng() * 66;
-    const c = { x: Math.cos(ang) * d, z: Math.sin(ang) * d, r: 11 + rng() * 8 };
+    const c = { x: Math.cos(ang) * d, z: Math.sin(ang) * d, r: 15 + rng() * 8 };
     if (Math.abs(c.x) > H - c.r - 4 || Math.abs(c.z) > H - c.r - 4) continue;
     if (cities.some((o) => Math.hypot(o.x - c.x, o.z - c.z) < o.r + c.r + 14)) continue;
     cities.push(c);
@@ -420,7 +424,7 @@ export function getTerrain(seed: number): WorldTerrain {
       );
       let h = (fbm(x * 0.035, z * 0.035, seed + 51, 3) - 0.5) * 0.9;
       const flat = smoothstep(2.2, 5, dR) * smoothstep(18, 28, dB);
-      h = h * flat * (1 - edge) + rAmt * 2.6 - w * 1.5;
+      h = h * flat * (1 - edge) * (1 - cAmt) + rAmt * 2.6 - w * 1.5;
       height[k] = h;
       water[k] = w;
       road[k] = dR;
@@ -451,7 +455,30 @@ export function getTerrain(seed: number): WorldTerrain {
       kind[ty * n + tx] = t;
     }
   }
-  terrainCache = { seed, gn, step, height, water, road, city, moist, rock, detail, kind, roads, river, cities };
+  // ruined city blocks: 3x3 tiles of town ground away from roads/water
+  const blocks: { tx: number; ty: number; seed: number }[] = [];
+  const isTown = (x: number, y: number) => {
+    if (x < 1 || y < 1 || x >= n - 1 || y >= n - 1) return false;
+    const k = kind[y * n + x];
+    return k === TK.RUIN || k === TK.RUBBLE;
+  };
+  for (const c of cities) {
+    const ctx = Math.floor((c.x + D.HALF) / D.TILE);
+    const cty = Math.floor((c.z + D.HALF) / D.TILE);
+    let placed = 0;
+    for (const [ox, oy] of [[0, 0], [3, 0], [-3, 0], [0, 3], [0, -3], [3, 3], [-3, -3], [3, -3], [-3, 3]]) {
+      if (placed >= 3) break;
+      const bx = ctx + ox;
+      const by = cty + oy;
+      let ok = true;
+      for (let y = by - 1; y <= by + 1 && ok; y++) for (let x = bx - 1; x <= bx + 1 && ok; x++) ok = isTown(x, y);
+      if (!ok) continue;
+      for (let y = by - 1; y <= by + 1; y++) for (let x = bx - 1; x <= bx + 1; x++) kind[y * n + x] = TK.BLOCK;
+      blocks.push({ tx: bx, ty: by, seed: Math.floor(hash2(bx, by, seed + 5) * 1e6) });
+      placed++;
+    }
+  }
+  terrainCache = { seed, gn, step, height, water, road, city, moist, rock, detail, kind, roads, river, cities, blocks };
   return terrainCache;
 }
 

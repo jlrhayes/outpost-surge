@@ -18,8 +18,6 @@ export const BASE_GATE_RADIUS = 8;
 export const STAMINA_MAX = 120;
 export const STAMINA_REGEN_MS = 5 * 60_000;
 export const STAMINA_COST = { normal: 10, elite: 20, boss: 20, rival: 10 } as const;
-/** Stamina restored by one `stamina_potion` when used from the world map. */
-export const STAMINA_POTION_AMOUNT = 50;
 
 // ---------------------------------------------------------------- marches
 /** Travel time per tile of distance (before march_speed_pct). */
@@ -137,7 +135,6 @@ export function firstClearBonus(level: number): number {
 
 // ---------------------------------------------------------------- resource tiles
 export type ResKind = 'food' | 'iron' | 'gold';
-export const RES_KINDS: ResKind[] = ['food', 'iron', 'gold'];
 export const RES_MAX_LEVEL = 6;
 export const RES_NAMES: Record<ResKind, string> = { food: 'Farmland', iron: 'Iron Deposit', gold: 'Gold Vein' };
 const RES_CAPACITY = [6000, 12000, 22000, 38000, 60000, 90000];
@@ -229,19 +226,4 @@ export const HORDE_NAMES: Record<HordeVariant, string> = {
   normal: 'Shambler Pack',
   elite: 'Mauler Brood',
   boss: 'Blight Colossus',
-};
-
-/** Friendly names for items we grant (the meta module owns the full item catalogue). */
-export const ITEM_LABELS: Record<string, string> = {
-  speedup_1m: 'Speed-up 1m',
-  speedup_5m: 'Speed-up 5m',
-  speedup_1h: 'Speed-up 1h',
-  speedup_8h: 'Speed-up 8h',
-  recruit_ticket: 'Recruit Ticket',
-  skill_medal: 'Skill Medal',
-  stamina_potion: 'Stamina Potion',
-  food_box: 'Food Crate',
-  iron_box: 'Iron Crate',
-  gold_box: 'Gold Crate',
-  exp_box: 'EXP Crate',
 };

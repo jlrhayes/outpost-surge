@@ -2,7 +2,7 @@
 // Shared characters/vehicles/buildings come from src/three/models; these are map dressing.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { buildColored, P, survivorGeometry, propGeometry, type PropKind } from '../../three/models';
+import { buildColored, P, survivorGeometry, rockGeom, ruinedBlockModel } from '../../three/models';
 import type { Part } from '../../three/models/builder';
 
 const cache = new Map<string, THREE.BufferGeometry>();
@@ -30,61 +30,6 @@ function mergeWith(items: { geom: THREE.BufferGeometry; pos?: [number, number, n
   const out = mergeGeometries(list, false)!;
   out.computeBoundingSphere();
   return out;
-}
-
-// ------------------------------------------------------------------ resource tiles
-export function farmGeometry(): THREE.BufferGeometry {
-  return cached('farm', () => {
-    const parts: Part[] = [{ geom: P.box, color: 0x6e4f33, pos: [0, 0.07, 0], scale: [3.3, 0.14, 3.0] }];
-    for (let i = 0; i < 5; i++) {
-      parts.push({ geom: P.box, color: i % 2 ? 0xb9c24a : 0x8fbf45, pos: [-0.35, 0.28, -1.15 + i * 0.56], scale: [2.3, 0.32, 0.36] });
-      parts.push({ geom: P.box, color: 0xe0c85a, pos: [-0.35, 0.47, -1.15 + i * 0.56], scale: [2.1, 0.08, 0.2] });
-    }
-    parts.push({ geom: P.cyl, color: 0xdcd6c6, pos: [1.25, 0.85, -0.85], scale: [0.75, 1.7, 0.75] });
-    parts.push({ geom: P.cone, color: 0xb2402f, pos: [1.25, 1.95, -0.85], scale: [0.9, 0.55, 0.9] });
-    parts.push({ geom: P.box, color: 0x9a3a2a, pos: [1.25, 0.5, 0.75], scale: [0.8, 0.8, 0.9] });
-    parts.push({ geom: P.box, color: 0x6a2a20, pos: [1.25, 0.98, 0.75], rot: [0, 0, 0], scale: [0.95, 0.18, 1.0] });
-    return buildColored(parts);
-  });
-}
-
-export function ironGeometry(): THREE.BufferGeometry {
-  return cached('ironDeposit', () =>
-    buildColored([
-      { geom: P.box, color: 0x6a6258, pos: [0, 0.05, 0], scale: [3.2, 0.1, 3.0] },
-      { geom: P.sphereLow, color: 0x6d747c, pos: [-0.45, 0.5, 0.15], scale: [1.8, 1.3, 1.6] },
-      { geom: P.sphereLow, color: 0x7f878f, pos: [0.85, 0.4, -0.55], scale: [1.3, 1.0, 1.2] },
-      { geom: P.sphereLow, color: 0x5d646c, pos: [0.55, 0.3, 0.95], scale: [1.0, 0.8, 1.0] },
-      { geom: P.box, color: 0x2f3542, pos: [-0.2, 0.95, 0.5], rot: [0.4, 0.3, 0.2], scale: [0.42, 0.34, 0.4] },
-      { geom: P.box, color: 0x2f3542, pos: [0.9, 0.85, -0.3], rot: [0.2, 0.8, 0.3], scale: [0.36, 0.3, 0.36] },
-      { geom: P.box, color: 0xa2603c, pos: [-0.9, 0.9, -0.3], rot: [0.5, 0.2, 0.1], scale: [0.34, 0.3, 0.34] },
-      { geom: P.box, color: 0x8a5a3a, pos: [-1.1, 0.38, -1.05], scale: [0.85, 0.42, 0.6] },
-      { geom: P.box, color: 0x2f3542, pos: [-1.1, 0.64, -1.05], scale: [0.7, 0.14, 0.45] },
-      { geom: P.cyl, color: 0x222222, pos: [-1.45, 0.16, -1.05], rot: [0, 0, Math.PI / 2], scale: [0.3, 0.1, 0.3] },
-      { geom: P.cyl, color: 0x222222, pos: [-0.75, 0.16, -1.05], rot: [0, 0, Math.PI / 2], scale: [0.3, 0.1, 0.3] },
-      { geom: P.box, color: 0x5a4a3a, pos: [1.1, 1.1, 0.9], rot: [0, 0, 0.3], scale: [0.12, 2.2, 0.12] },
-      { geom: P.box, color: 0x5a4a3a, pos: [1.55, 1.1, 0.9], rot: [0, 0, -0.3], scale: [0.12, 2.2, 0.12] },
-      { geom: P.box, color: 0x4a3a2a, pos: [1.33, 2.1, 0.9], scale: [0.7, 0.12, 0.2] },
-    ]),
-  );
-}
-
-export function goldGeometry(): THREE.BufferGeometry {
-  return cached('goldVein', () =>
-    buildColored([
-      { geom: P.box, color: 0x7a6a50, pos: [0, 0.05, 0], scale: [3.1, 0.1, 2.9] },
-      { geom: P.sphereLow, color: 0x8a7658, pos: [-0.3, 0.55, 0.1], scale: [1.9, 1.4, 1.6] },
-      { geom: P.sphereLow, color: 0x9d8a6a, pos: [0.95, 0.4, 0.6], scale: [1.2, 1.0, 1.1] },
-      { geom: P.sphereLow, color: 0x7a664a, pos: [0.6, 0.35, -0.95], scale: [1.1, 0.8, 1.0] },
-      { geom: P.sphereLow, color: 0xffc93a, pos: [-0.5, 1.1, 0.55], scale: [0.45, 0.4, 0.45] },
-      { geom: P.sphereLow, color: 0xffd650, pos: [0.3, 0.95, -0.2], scale: [0.4, 0.36, 0.4] },
-      { geom: P.sphereLow, color: 0xf0b020, pos: [1.1, 0.8, 0.5], scale: [0.35, 0.3, 0.35] },
-      { geom: P.sphereLow, color: 0xffc93a, pos: [-1.1, 0.5, -0.6], scale: [0.4, 0.35, 0.4] },
-      { geom: P.box, color: 0xfff2a8, pos: [-0.5, 1.35, 0.55], rot: [0.6, 0.6, 0], scale: [0.14, 0.14, 0.14] },
-      { geom: P.box, color: 0x6a4a2a, pos: [-1.2, 0.25, 1.0], scale: [0.7, 0.3, 0.5] },
-      { geom: P.sphereLow, color: 0xffc93a, pos: [-1.2, 0.45, 1.0], scale: [0.5, 0.2, 0.35] },
-    ]),
-  );
 }
 
 // ------------------------------------------------------------------ radar pickups
@@ -207,15 +152,6 @@ export function ruinGeometry(v: number): THREE.BufferGeometry {
   });
 }
 
-export function shrubGeometry(): THREE.BufferGeometry {
-  return cached('shrub', () =>
-    buildColored([
-      { geom: P.sphereLow, color: 0x5f8a3a, pos: [0, 0.25, 0], scale: [0.8, 0.55, 0.8] },
-      { geom: P.sphereLow, color: 0x6f9a42, pos: [0.3, 0.2, 0.2], scale: [0.5, 0.4, 0.5] },
-    ]),
-  );
-}
-
 export function deadTreeGeometry(): THREE.BufferGeometry {
   return cached('deadTree', () =>
     buildColored([
@@ -224,10 +160,6 @@ export function deadTreeGeometry(): THREE.BufferGeometry {
       { geom: P.cyl, color: 0x5a4632, pos: [-0.25, 1.3, 0.1], rot: [0.3, 0, 0.9], scale: [0.09, 0.7, 0.09] },
     ]),
   );
-}
-
-export function prop(kind: PropKind): THREE.BufferGeometry {
-  return propGeometry(kind);
 }
 
 // ------------------------------------------------------------------ outpost walls
@@ -265,12 +197,62 @@ export function wallRingGeometry(key: string, radius: number, gapAngles: number[
   });
 }
 
-/** Flag pole (the banner is a separate, tinted mesh). */
-export function flagGeometry(): THREE.BufferGeometry {
-  return cached('flag', () =>
+// ------------------------------------------------------------------ art-library wrappers
+export const ROCK_VARIANTS = 4;
+const ROCK_COLORS = [0x8a8174, 0x7b7468, 0x978e7e, 0x6f6a60];
+/** Irregular boulder (art library hull), vertex coloured, cached per variant. */
+export function rockVariant(i: number): THREE.BufferGeometry {
+  const v = ((i % ROCK_VARIANTS) + ROCK_VARIANTS) % ROCK_VARIANTS;
+  return cached('rockv' + v, () => buildColored([{ geom: rockGeom(100 + v * 7), color: ROCK_COLORS[v], scale: [1.2, 1, 1.1] }]));
+}
+
+/** Static body geometry + rotation of a ruined 12x12 city block (its fog child is discarded). */
+export function ruinedBlockBody(seed: number): { geom: THREE.BufferGeometry; rotY: number } | null {
+  const g = ruinedBlockModel(seed);
+  let out: { geom: THREE.BufferGeometry; rotY: number } | null = null;
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (m.name === 'body' && !out) out = { geom: m.geometry, rotY: m.rotation.y };
+    else if (m.name === 'fog') (m.material as THREE.Material).dispose();
+  });
+  return out;
+}
+// ------------------------------------------------------------------ map-scale vegetation
+// The art library's trees are detailed (~800 verts); forests on the world map use thousands of them,
+// so these lighter versions (~150 verts) share its palette and silhouette for mass scatter.
+const P_CONE6 = new THREE.ConeGeometry(0.5, 1, 6);
+const P_CONE7 = new THREE.ConeGeometry(0.5, 1, 7);
+
+export function mapPineGeometry(v = 0): THREE.BufferGeometry {
+  const dark = v % 2 ? 0x2f6b44 : 0x2a6040;
+  const mid = v % 2 ? 0x3c7f4e : 0x367548;
+  return cached('mapPine' + (v % 2), () =>
     buildColored([
-      { geom: P.cyl, color: 0x3a3a3a, pos: [0, 1.6, 0], scale: [0.1, 3.2, 0.1] },
-      { geom: P.sphereLow, color: 0xd8c060, pos: [0, 3.25, 0], scale: [0.2, 0.2, 0.2] },
+      { geom: P_CONE6, color: 0x6b4a2e, pos: [0, 0.45, 0], scale: [0.32, 0.9, 0.32] },
+      { geom: P_CONE7, color: dark, pos: [0, 1.25, 0], scale: [1.6, 1.4, 1.6] },
+      { geom: P_CONE7, color: mid, pos: [0, 2.05, 0], rot: [0, 0.4, 0], scale: [1.15, 1.2, 1.15] },
+    ]),
+  );
+}
+
+export function mapTreeGeometry(v = 0): THREE.BufferGeometry {
+  const a = v % 2 ? 0x5ea447 : 0x6db34e;
+  const b = v % 2 ? 0x4e9440 : 0x5fa646;
+  return cached('mapTree' + (v % 2), () =>
+    buildColored([
+      { geom: P_CONE6, color: 0x7a5534, pos: [0, 0.6, 0], scale: [0.34, 1.2, 0.34] },
+      { geom: P.sphereLow, color: a, pos: [0, 1.75, 0], scale: [1.7, 1.45, 1.7] },
+      { geom: P.sphereLow, color: b, pos: [0.35, 1.45, 0.25], rot: [0.5, 0.3, 0], scale: [1.1, 0.95, 1.1] },
+    ]),
+  );
+}
+
+export function mapShrubGeometry(): THREE.BufferGeometry {
+  return cached('mapShrub', () =>
+    buildColored([
+      { geom: P.sphereLow, color: 0x5f963e, pos: [0, 0.3, 0], scale: [0.95, 0.65, 0.95] },
+      { geom: P.sphereLow, color: 0x72a848, pos: [0.35, 0.24, 0.2], scale: [0.6, 0.48, 0.6] },
     ]),
   );
 }

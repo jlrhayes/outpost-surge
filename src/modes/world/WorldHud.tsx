@@ -3,11 +3,11 @@
 import { useGame, type GameState } from '../../core/store';
 import { goTo, openScreen } from '../../core/nav';
 import { clock } from '../../core/tick';
-import { fmt, fmtDuration } from '../../core/format';
+import { fmtDuration } from '../../core/format';
 import { isUnlocked, unlockHint } from '../../core/unlocks';
 import { sfx } from '../../core/audio';
 import { Icon } from '../../ui/components/Icon';
-import type { CurrencyId } from '../../core/types';
+import { ResourceBar } from '../../ui/components/ResourceBar';
 import {
   marchPosition,
   marchStatusLabel,
@@ -23,8 +23,6 @@ import {
 import { camTile, requestCam, selectedEntity } from './bus';
 import { WIcon } from './parts';
 import './world.css';
-
-const RES: CurrencyId[] = ['food', 'iron', 'gold', 'diamonds'];
 
 export function WorldHud() {
   const s = useGame();
@@ -48,7 +46,7 @@ export function WorldHud() {
                 requestCam({ x: 0, z: 0 });
               }}
             >
-              <WIcon name="home" size={26} />
+              <Icon name="target" size={28} />
             </button>
             <div class="wm-coords">
               X:{camTile.value.tx} Y:{camTile.value.ty}
@@ -63,14 +61,15 @@ export function WorldHud() {
         </div>
       )}
       <button
-        class="wm-base-btn"
+        class="world-btn wm-base-btn"
+        aria-label="Back to base"
         onClick={() => {
           sfx.click();
           goTo('base');
         }}
       >
-        <WIcon name="base" size={38} />
-        <span>Base</span>
+        <Icon name="home" size={44} />
+        <span class="world-btn-label">Base</span>
       </button>
     </div>
   );
@@ -82,7 +81,9 @@ function TopBar(props: { s: GameState; t: number }) {
   const max = staminaMax(s);
   const next = nextStaminaAt(s, t);
   return (
-    <div class="wm-top">
+    <div class="hud-top wm-top">
+      <ResourceBar onClick={() => openScreen('bag')} />
+      <div class="wm-top-row">
       <button
         class="wm-stam"
         onClick={() => {
@@ -97,13 +98,6 @@ function TopBar(props: { s: GameState; t: number }) {
         </span>
         {next !== null && <span class="wm-stam-next">+1 {fmtDuration(next - t)}</span>}
       </button>
-      <div class="wm-res">
-        {RES.map((k) => (
-          <div class="wm-res-chip" key={k}>
-            <Icon name={k} size={17} />
-            <span>{fmt(s.currencies[k] ?? 0)}</span>
-          </div>
-        ))}
       </div>
     </div>
   );

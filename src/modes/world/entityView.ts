@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { GameState } from '../../core/store';
 import { fmt } from '../../core/format';
 import { hashSeed } from '../../core/rng';
-import { buildingModel, vcMaterial, zombieGeometry } from '../../three/models';
+import { animateModel, buildingModel, flagModel, propGeometry, resourceNodeGeometry, vcMaterial, zombieGeometry } from '../../three/models';
 import { hqLevel } from '../../systems/buildings';
 import { totalPower } from '../../core/bonuses';
 import {
@@ -19,7 +19,9 @@ import {
 } from '../../systems/world';
 import type { HordeVariant, ResKind } from '../../data/world';
 import { BadgeLayer, glyph, pillBadge, pinBadge } from './badges';
-import { cacheGeometry, campGeometry, digGeometry, farmGeometry, flagGeometry, goldGeometry, ironGeometry, wallRingGeometry } from './geo';
+import { cacheGeometry, campGeometry, digGeometry, wallRingGeometry } from './geo';
+import { Batch, sceneryMaterial } from './terrainView';
+import type { PropKind } from '../../three/models';
 
 export interface PickPoint {
   id: string;
@@ -29,6 +31,8 @@ export interface PickPoint {
   z: number;
   /** Pick radius in world units. */
   r: number;
+  /** Height of the floating badge (tapping the label also selects). */
+  by?: number;
 }
 
 const MAX_WALKERS = 1100;
@@ -51,8 +55,8 @@ function instanced(geom: THREE.BufferGeometry, mat: THREE.Material, cap: number,
   return m;
 }
 
-/** Per zombie instance animation data: x, y, z, yaw, scale, phase. */
-const ZA = 6;
+/** Per zombie instance animation data: x, y, z, yaw, scale, phase, rank-in-horde. */
+const ZA = 7;
 
 export class EntityView {
   readonly group = new THREE.Group();
@@ -72,10 +76,11 @@ export class EntityView {
   private rivals = new Map<string, { group: THREE.Group; shield: THREE.Mesh; level: number }>();
   private shieldMat = new THREE.MeshBasicMaterial({ color: 0x8ad8ff, transparent: true, opacity: 0.22, depthWrite: false });
   private shieldGeo = new THREE.SphereGeometry(4.4, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-  private flagMats = new Map<number, THREE.MeshLambertMaterial>();
-  private bannerGeo = new THREE.BoxGeometry(1.0, 0.62, 0.05);
+  /** Waving flags (animated with the art library's animateModel). */
+  private flags: THREE.Object3D[] = [];
   private baseGroup = new THREE.Group();
   private baseKey = '';
+  private baseDressingGeo: THREE.BufferGeometry | null = null;
   private ring: THREE.Mesh;
   private ringBase = 1;
   private rev = -1;
@@ -83,6 +88,10 @@ export class EntityView {
   private quality: 'low' | 'high' = 'high';
   private lastShieldCheck = 0;
   selectedId: string | null = null;
+  /** Visible ground rectangle (+margin): zombie instances outside it are not submitted. */
+  private view = { minX: -1e9, maxX: 1e9, minZ: -1e9, maxZ: 1e9 };
+  /** Zombies drawn per horde (fewer when zoomed far out). */
+  private maxRank = 99;
 
   constructor(private terrain: WorldTerrain) {
     const mat = vcMaterial();
@@ -95,9 +104,9 @@ export class EntityView {
     this.decals.receiveShadow = false;
     this.decals.renderOrder = 3;
     this.res = {
-      food: instanced(farmGeometry(), mat, MAX_RES),
-      iron: instanced(ironGeometry(), mat, MAX_RES),
-      gold: instanced(goldGeometry(), mat, MAX_RES),
+      food: instanced(resourceNodeGeometry('food'), mat, MAX_RES),
+      iron: instanced(resourceNodeGeometry('iron'), mat, MAX_RES),
+      gold: instanced(resourceNodeGeometry('gold'), mat, MAX_RES),
     };
     this.camps = instanced(campGeometry(), mat, MAX_PICKUPS);
     this.caches = instanced(cacheGeometry(), mat, MAX_PICKUPS);
@@ -154,10 +163,10 @@ export class EntityView {
           for (let i = 0; i < nw && this.nWalkers < MAX_WALKERS; i++) {
             const a = yaw + (i / nw) * Math.PI * 2 + (((h >> (i + 3)) & 7) - 3.5) * 0.08;
             const rr = R * (0.7 + (((h >> (i * 2)) & 3) / 3) * 0.4);
-            this.pushZombie(this.walkerAnim, this.nWalkers++, c.x + Math.cos(a) * rr, y, c.z + Math.sin(a) * rr, a + Math.PI + ((h >> i) & 3) * 0.3, 1.65, (h >> (i * 3)) & 255);
+            this.pushZombie(this.walkerAnim, this.nWalkers++, c.x + Math.cos(a) * rr, y, c.z + Math.sin(a) * rr, a + Math.PI + ((h >> i) & 3) * 0.3, 1.65, (h >> (i * 3)) & 255, i);
           }
           if (brute && this.nBrutes < MAX_BRUTES) {
-            this.pushZombie(this.bruteAnim, this.nBrutes++, c.x, y, c.z, yaw, variant === 'boss' ? 2.4 : 1.5, h & 255);
+            this.pushZombie(this.bruteAnim, this.nBrutes++, c.x, y, c.z, yaw, variant === 'boss' ? 2.4 : 1.5, h & 255, 0);
           }
           if (nDecals < MAX_DECALS) {
             const ds = variant === 'boss' ? 2.8 : variant === 'elite' ? 2.4 : 2.1;
@@ -171,22 +180,28 @@ export class EntityView {
           const top = variant === 'boss' ? 6.4 : variant === 'elite' ? 4.2 : 3.2;
           this.badges.add(key, hordeBadge(e.level, variant, locked), c.x, y + top, c.z, 5.4, 1.35);
           if (e.radarId) this.badges.add('pin:radar', pinBadge('#e8453c'), c.x, y + top + 1.3, c.z, 5.4, 1.35, 0.18);
-          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 1, z: c.z, r: variant === 'boss' ? 2.6 : 2.0 });
+          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 1, z: c.z, r: variant === 'boss' ? 3.4 : 2.8, by: y + top });
           break;
         }
         case 'resource': {
           const n = nRes[e.res];
           if (n < MAX_RES) {
-            const sc = 0.82 + e.level * 0.05;
-            tmpM.makeRotationY(Math.floor(yaw / (Math.PI / 2)) * (Math.PI / 2));
+            const sc = 1.2 + e.level * 0.07;
+            tmpM.makeRotationY(yaw);
             tmpS.set(sc, sc, sc);
             tmpM.scale(tmpS).setPosition(c.x, y, c.z);
             this.res[e.res].setMatrixAt(n, tmpM);
             nRes[e.res] = n + 1;
           }
+          if (nDecals < MAX_DECALS) {
+            tmpM.makeScale(2.1, 1, 2.1).setPosition(c.x, y + 0.06, c.z);
+            this.decals.setMatrixAt(nDecals, tmpM);
+            this.decals.setColorAt(nDecals, tmpC.set(e.res === 'food' ? 0x6a5020 : e.res === 'iron' ? 0x3c4046 : 0x6a5418));
+            nDecals++;
+          }
           const occupied = !!marchTargeting(s, e.id);
           this.badges.add(`r:${e.res}:${e.level}:${occupied ? 1 : 0}`, resourceBadge(e.res, e.level, occupied), c.x, y + 2.7, c.z, 5.4, 1.35);
-          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 0.8, z: c.z, r: 2.0 });
+          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 0.8, z: c.z, r: 2.8, by: y + 2.7 });
           break;
         }
         case 'rival': {
@@ -208,7 +223,7 @@ export class EntityView {
             6.8,
             1.7,
           );
-          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 1.5, z: c.z, r: 3.6 });
+          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 1.5, z: c.z, r: 4.2, by: y + 5.4 });
           break;
         }
         case 'pickup': {
@@ -229,7 +244,7 @@ export class EntityView {
             1.35,
           );
           this.badges.add('pin:radar', pinBadge('#e8453c'), c.x, y + 4.1, c.z, 5.4, 1.35, 0.18);
-          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 0.8, z: c.z, r: 2.0 });
+          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 0.8, z: c.z, r: 2.8, by: y + 2.8 });
           break;
         }
         case 'dig': {
@@ -247,7 +262,7 @@ export class EntityView {
             1.35,
           );
           this.badges.add('pin:radar', pinBadge('#e8453c'), c.x, y + 3.9, c.z, 5.4, 1.35, 0.18);
-          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 0.6, z: c.z, r: 2.0 });
+          this.picks.push({ id: e.id, kind: 'entity', x: c.x, y: y + 0.6, z: c.z, r: 2.8, by: y + 2.6 });
           break;
         }
       }
@@ -256,12 +271,11 @@ export class EntityView {
     for (const [id, r] of this.rivals) {
       if (!seen.has(id)) {
         this.group.remove(r.group);
+        this.flags = this.flags.filter((f) => f.parent !== r.group);
         this.rivals.delete(id);
       }
     }
     this.badges.end();
-    this.walkers.count = this.nWalkers;
-    this.brutes.count = this.nBrutes;
     this.decals.count = nDecals;
     for (const k of ['food', 'iron', 'gold'] as ResKind[]) {
       this.res[k].count = Math.min(MAX_RES, nRes[k]);
@@ -276,7 +290,7 @@ export class EntityView {
     this.updateRing(s);
   }
 
-  private pushZombie(arr: Float32Array, i: number, x: number, y: number, z: number, yaw: number, scale: number, phase: number): void {
+  private pushZombie(arr: Float32Array, i: number, x: number, y: number, z: number, yaw: number, scale: number, phase: number, rank: number): void {
     const o = i * ZA;
     arr[o] = x;
     arr[o + 1] = y;
@@ -284,6 +298,7 @@ export class EntityView {
     arr[o + 3] = yaw;
     arr[o + 4] = scale;
     arr[o + 5] = (phase / 255) * Math.PI * 2;
+    arr[o + 6] = rank;
   }
 
   /** Writes zombie instance matrices; animated shuffle when `still` is false. */
@@ -293,8 +308,12 @@ export class EntityView {
   }
 
   private writeSet(mesh: THREE.InstancedMesh, arr: Float32Array, n: number, time: number, still: boolean, speed: number): void {
+    const v = this.view;
+    let k = 0;
     for (let i = 0; i < n; i++) {
       const o = i * ZA;
+      if (arr[o + 6] >= this.maxRank) continue;
+      if (arr[o] < v.minX || arr[o] > v.maxX || arr[o + 2] < v.minZ || arr[o + 2] > v.maxZ) continue;
       const ph = arr[o + 5];
       let yaw = arr[o + 3];
       let x = arr[o];
@@ -311,8 +330,9 @@ export class EntityView {
       tmpM.makeRotationY(yaw);
       tmpS.set(s, s, s);
       tmpM.scale(tmpS).setPosition(x, y, z);
-      mesh.setMatrixAt(i, tmpM);
+      mesh.setMatrixAt(k++, tmpM);
     }
+    mesh.count = k;
     mesh.instanceMatrix.needsUpdate = true;
   }
 
@@ -320,7 +340,9 @@ export class EntityView {
     let r = this.rivals.get(e.id);
     const lv = Math.max(1, Math.min(30, e.level));
     if (r && r.level !== lv) {
-      this.group.remove(r.group);
+      const old = r.group;
+      this.group.remove(old);
+      this.flags = this.flags.filter((f) => f.parent !== old);
       r = undefined;
     }
     if (!r) {
@@ -332,12 +354,10 @@ export class EntityView {
       wall.castShadow = true;
       wall.receiveShadow = true;
       g.add(wall);
-      const pole = new THREE.Mesh(flagGeometry(), vcMaterial());
-      pole.position.set(2.2, 0, -2.2);
-      g.add(pole);
-      const banner = new THREE.Mesh(this.bannerGeo, this.flagMat(e.color));
-      banner.position.set(2.75, 2.85, -2.2);
-      g.add(banner);
+      const flag = flagModel(e.color);
+      flag.position.set(2.3, 0, -2.3);
+      g.add(flag);
+      this.flags.push(flag);
       const shield = new THREE.Mesh(this.shieldGeo, this.shieldMat);
       shield.renderOrder = 5;
       g.add(shield);
@@ -350,14 +370,6 @@ export class EntityView {
     r.shield.visible = e.shieldUntil > t;
   }
 
-  private flagMat(color: number): THREE.MeshLambertMaterial {
-    let m = this.flagMats.get(color);
-    if (!m) {
-      m = new THREE.MeshLambertMaterial({ color });
-      this.flagMats.set(color, m);
-    }
-    return m;
-  }
 
   private syncBase(s: GameState): void {
     const hq = Math.max(1, hqLevel(s));
@@ -368,26 +380,31 @@ export class EntityView {
     const key = hq + '|' + blds.map((b) => b.type + b.level).join(',') + '|' + this.quality;
     if (key === this.baseKey) return;
     this.baseKey = key;
+    this.flags = this.flags.filter((f) => !this.baseGroup.children.includes(f));
     this.baseGroup.clear();
     const hqm = buildingModel('hq', hq);
+    hqm.scale.setScalar(1.35);
     this.baseGroup.add(hqm);
     const gaps = this.terrain.roads.slice(0, 4).map((l) => Math.atan2(l[1], l[0]));
-    const wall = new THREE.Mesh(wallRingGeometry('base', 9.2, gaps, 0.2, 1.4), vcMaterial());
-    wall.castShadow = true;
-    wall.receiveShadow = true;
-    this.baseGroup.add(wall);
-    // the player's actual top buildings, shrunk, around the HQ
+    // static dressing (wall ring, checkpoints, camp props) merged into a single mesh
+    const dressing = new Batch();
+    dressing.add(wallRingGeometry('base', 9.2, gaps, 0.2, 1.4), 0, 0, 0, 0, 1);
+    const sand = propGeometry('sandbag');
+    const barrier = propGeometry('barrier');
+    for (const g of gaps) {
+      const px = Math.cos(g);
+      const pz = Math.sin(g);
+      for (const side of [-1, 1]) dressing.add(sand, px * 10.6 - pz * side * 2.6, 0, pz * 10.6 + px * side * 2.6, -g + Math.PI / 2, 1);
+      dressing.add(barrier, px * 7.4, 0, pz * 7.4, -g, 1);
+    }
+    // the player's actual top buildings, shrunk, around the HQ; camp props fill the gaps
+    const clearOfGates = (a: number, d: number) => gaps.every((g) => Math.abs(Math.atan2(Math.sin(a - g), Math.cos(a - g))) > d);
     let slot = 0;
     for (const b of blds) {
       let a = 0;
       for (; slot < 16; slot++) {
         a = (slot / 8) * Math.PI * 2 + Math.PI / 8;
-        const clear = gaps.every((g) => {
-          let d = Math.abs(a - g) % (Math.PI * 2);
-          if (d > Math.PI) d = Math.PI * 2 - d;
-          return d > 0.45;
-        });
-        if (clear) break;
+        if (clearOfGates(a, 0.45)) break;
       }
       slot++;
       const m = buildingModel(b.type, b.level);
@@ -396,12 +413,34 @@ export class EntityView {
       m.rotation.y = -a + Math.PI / 2;
       this.baseGroup.add(m);
     }
-    const pole = new THREE.Mesh(flagGeometry(), vcMaterial());
-    pole.position.set(-3.6, 0, -3.6);
-    const banner = new THREE.Mesh(this.bannerGeo, this.flagMat(0x2f8fff));
-    banner.position.set(-3.05, 2.85, -3.6);
-    this.baseGroup.add(pole, banner);
-    this.baseGroup.traverse((o) => {
+    if (this.quality === 'high') {
+      const dress: [PropKind, number, number][] = [
+        ['tent', 0.6, 1],
+        ['container', 2.2, 1.1],
+        ['tent', 3.5, 1],
+        ['ammo_crate', 4.4, 1.2],
+        ['container', 5.5, 1.1],
+      ];
+      for (let i = 0; i < dress.length && i + blds.length < 8; i++) {
+        const [kind, ang, sc] = dress[i];
+        const a = ang + 0.3;
+        if (!clearOfGates(a, 0.5)) continue;
+        dressing.add(propGeometry(kind), Math.cos(a) * 6.8, 0, Math.sin(a) * 6.8, -a, sc);
+      }
+    }
+    const dg = dressing.build();
+    if (dg) {
+      this.baseDressingGeo?.dispose();
+      this.baseDressingGeo = dg;
+      this.baseGroup.add(new THREE.Mesh(dg, sceneryMaterial()));
+    }
+    for (const [fx, fz] of [[-4.2, -4.2], [4.2, -4.2]]) {
+      const f = flagModel(0x2f8fff);
+      f.position.set(fx, 0, fz);
+      f.scale.setScalar(1.3);
+      this.baseGroup.add(f);
+      this.flags.push(f);
+    }    this.baseGroup.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
@@ -422,7 +461,7 @@ export class EntityView {
       6.8,
       1.7,
     );
-    this.picks.push({ id: 'base', kind: 'base', x: 0, y: 2, z: 0, r: 7 });
+    this.picks.push({ id: 'base', kind: 'base', x: 0, y: 2, z: 0, r: 7, by: 8.2 });
   }
 
   private updateRing(s: GameState): void {
@@ -453,8 +492,20 @@ export class EntityView {
     this.updateRing(s);
   }
 
-  update(s: GameState, t: number, time: number, dist: number, uiScale: number): void {
-    if (this.quality === 'high' && dist < 95) this.writeZombies(time, false);
+  /** Sets the visible ground rectangle and zoom used to cull / thin zombie instances. */
+  setView(minX: number, maxX: number, minZ: number, maxZ: number, dist: number): void {
+    const v = this.view;
+    v.minX = minX;
+    v.maxX = maxX;
+    v.minZ = minZ;
+    v.maxZ = maxZ;
+    this.maxRank = dist > 110 ? 2 : dist > 85 ? 4 : 99;
+  }
+
+  update(s: GameState, t: number, dt: number, time: number, dist: number, uiScale: number): void {
+    const animate = this.quality === 'high' && dist < 95;
+    this.writeZombies(time, !animate);
+    if (animate) for (const f of this.flags) animateModel(f, dt, time);
     if (this.ring.visible) {
       const p = 1 + Math.sin(time * 5) * 0.06;
       this.ring.scale.setScalar(this.ringBase * p);
@@ -473,9 +524,8 @@ export class EntityView {
   dispose(): void {
     this.badges.dispose();
     this.shieldGeo.dispose();
+    this.baseDressingGeo?.dispose();
     this.shieldMat.dispose();
-    this.bannerGeo.dispose();
-    for (const m of this.flagMats.values()) m.dispose();
     this.decals.geometry.dispose();
     (this.decals.material as THREE.Material).dispose();
     this.ring.geometry.dispose();

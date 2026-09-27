@@ -6,9 +6,11 @@ import { HALF, MAP_TILES, TILE } from '../../data/world';
 import { TK, type WorldTerrain } from '../../systems/world';
 import { mulberry32 } from '../../core/rng';
 import { propGeometry } from '../../three/models';
-import { deadTreeGeometry, ruinGeometry, RUIN_VARIANTS, shrubGeometry } from './geo';
+import { deadTreeGeometry, mapPineGeometry, mapShrubGeometry, mapTreeGeometry, rockVariant, ROCK_VARIANTS, ruinedBlockBody, ruinGeometry, RUIN_VARIANTS } from './geo';
 
+/** Terrain mesh chunks per side, and (finer) decor chunks per side, for frustum culling. */
 export const CHUNKS = 4;
+export const DECOR_CHUNKS = 8;
 export const WATER_Y = -0.42;
 /** Colour/height of the rocky ridge that rings the map (terrain edge blends into the outer skirt). */
 const EDGE_HEX = 0x847b66;
@@ -127,7 +129,8 @@ interface BatchItem {
   geom: THREE.BufferGeometry;
   m: THREE.Matrix4;
 }
-class Batch {
+/** Accumulates transformed copies of vertex-coloured geometries and merges them into one geometry. */
+export class Batch {
   items: BatchItem[] = [];
   verts = 0;
   add(geom: THREE.BufferGeometry, x: number, y: number, z: number, yaw: number, sx: number, sy = sx, sz = sx): void {
@@ -180,19 +183,21 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 function buildDecor(t: WorldTerrain, quality: 'low' | 'high'): Batch[] {
   const batches: Batch[] = [];
-  for (let i = 0; i < CHUNKS * CHUNKS; i++) batches.push(new Batch());
+  for (let i = 0; i < DECOR_CHUNKS * DECOR_CHUNKS; i++) batches.push(new Batch());
   const rng = mulberry32((t.seed ^ 0x1234567) >>> 0);
   const n = MAP_TILES;
-  const per = n / CHUNKS;
+  const per = n / DECOR_CHUNKS;
   const hi = quality === 'high';
-  const tree = propGeometry('tree');
-  const pine = propGeometry('pine');
-  const rock = propGeometry('rock');
-  const wreck = propGeometry('car_wreck');
-  const barrel = propGeometry('barrel');
-  const crate = propGeometry('crate');
-  const shrub = shrubGeometry();
+  const trees = [mapTreeGeometry(0), mapTreeGeometry(1)];
+  const pines = [mapPineGeometry(0), mapPineGeometry(1)];
+  const tree = trees[0];
+  const bush = mapShrubGeometry();
+  const grass = propGeometry('grass');
+  const debris = [propGeometry('car_wreck'), propGeometry('barrel'), propGeometry('tire'), propGeometry('crate'), propGeometry('roadblock')];
+  const artRuin = propGeometry('ruin');
   const dead = deadTreeGeometry();
+  const rock = (r: number) => rockVariant(Math.floor(r * ROCK_VARIANTS));
+  const chunkOf = (tx: number, ty: number) => batches[Math.floor(ty / per) * DECOR_CHUNKS + Math.floor(tx / per)];
   const hAt = (x: number, z: number) => {
     const i = Math.max(0, Math.min(t.gn - 1, Math.round((x + HALF) / t.step)));
     const j = Math.max(0, Math.min(t.gn - 1, Math.round((z + HALF) / t.step)));
@@ -201,53 +206,53 @@ function buildDecor(t: WorldTerrain, quality: 'low' | 'high'): Batch[] {
   for (let ty = 0; ty < n; ty++) {
     for (let tx = 0; tx < n; tx++) {
       const kind = t.kind[ty * n + tx];
-      const b = batches[Math.floor(ty / per) * CHUNKS + Math.floor(tx / per)];
+      const b = chunkOf(tx, ty);
       const cx = -HALF + (tx + 0.5) * TILE;
       const cz = -HALF + (ty + 0.5) * TILE;
       const k = (ty * 2 + 1) * t.gn + tx * 2 + 1;
       switch (kind) {
         case TK.FOREST: {
-          const count = (hi ? 3 : 2) + (rng() < 0.5 ? 1 : 0);
+          const count = (hi ? 2 : 1) + (rng() < 0.55 ? 1 : 0);
           const lush = t.moist[k] > 0.62;
           for (let q = 0; q < count; q++) {
             const x = cx + (rng() - 0.5) * TILE * 0.9;
             const z = cz + (rng() - 0.5) * TILE * 0.9;
-            const s = 0.85 + rng() * 0.6;
-            const g = rng() < (lush ? 0.35 : 0.65) ? pine : tree;
+            const s = 1.05 + rng() * 0.6;
+            const g = rng() < (lush ? 0.35 : 0.65) ? pines[q & 1] : trees[q & 1];
             b.add(g, x, hAt(x, z), z, rng() * 6.28, s, s * (0.9 + rng() * 0.3), s);
           }
-          if (hi && rng() < 0.4) {
+          if (hi && rng() < 0.5) {
             const x = cx + (rng() - 0.5) * TILE;
             const z = cz + (rng() - 0.5) * TILE;
-            b.add(shrub, x, hAt(x, z), z, rng() * 6.28, 0.8 + rng() * 0.6);
+            b.add(bush, x, hAt(x, z), z, rng() * 6.28, 0.9 + rng() * 0.6);
           }
           break;
         }
         case TK.RUIN: {
-          const v = Math.floor(rng() * RUIN_VARIANTS);
           const yaw = Math.floor(rng() * 4) * (Math.PI / 2) + (rng() - 0.5) * 0.2;
           const s = 0.85 + rng() * 0.3;
-          b.add(ruinGeometry(v), cx + (rng() - 0.5) * 0.6, hAt(cx, cz), cz + (rng() - 0.5) * 0.6, yaw, s, s * (0.8 + rng() * 0.5), s);
+          if (rng() < 0.35) b.add(artRuin, cx, hAt(cx, cz), cz, yaw, 1.1 + rng() * 0.3);
+          else b.add(ruinGeometry(Math.floor(rng() * RUIN_VARIANTS)), cx + (rng() - 0.5) * 0.6, hAt(cx, cz), cz + (rng() - 0.5) * 0.6, yaw, s, s * (0.8 + rng() * 0.5), s);
           break;
         }
         case TK.RUBBLE: {
-          if (rng() < 0.45) {
-            const g = rng() < 0.5 ? wreck : rng() < 0.5 ? barrel : crate;
+          if (rng() < 0.5) {
+            const g = debris[Math.floor(rng() * debris.length)];
             const ox = (rng() < 0.5 ? -1 : 1) * TILE * 0.36;
             const oz = (rng() < 0.5 ? -1 : 1) * TILE * 0.36;
-            b.add(g, cx + ox, hAt(cx + ox, cz + oz), cz + oz, rng() * 6.28, g === wreck ? 0.55 : 0.6);
+            b.add(g, cx + ox, hAt(cx + ox, cz + oz), cz + oz, rng() * 6.28, g === debris[0] ? 0.6 : 0.75);
           }
           break;
         }
         case TK.ROCK: {
-          const count = 2 + Math.floor(rng() * 3);
+          const count = (hi ? 2 : 1) + (rng() < 0.4 ? 1 : 0);
           for (let q = 0; q < count; q++) {
             const x = cx + (rng() - 0.5) * TILE * 0.8;
             const z = cz + (rng() - 0.5) * TILE * 0.8;
-            const s = 0.8 + rng() * 1.6;
-            b.add(rock, x, hAt(x, z) - 0.1, z, rng() * 6.28, s, s * (0.7 + rng() * 0.6), s * (0.8 + rng() * 0.4));
+            const s = 1.3 + rng() * 2.2;
+            b.add(rock(rng()), x, hAt(x, z) - 0.15, z, rng() * 6.28, s, s * (0.6 + rng() * 0.6), s * (0.8 + rng() * 0.4));
           }
-          if (rng() < 0.3) {
+          if (rng() < 0.25) {
             const x = cx + (rng() - 0.5) * TILE * 0.6;
             const z = cz + (rng() - 0.5) * TILE * 0.6;
             b.add(dead, x, hAt(x, z), z, rng() * 6.28, 0.9 + rng() * 0.4);
@@ -255,32 +260,44 @@ function buildDecor(t: WorldTerrain, quality: 'low' | 'high'): Batch[] {
           break;
         }
         case TK.SHORE: {
-          if (rng() < 0.25) {
+          if (rng() < 0.35) {
             const x = cx + (rng() - 0.5) * TILE * 0.8;
             const z = cz + (rng() - 0.5) * TILE * 0.8;
-            b.add(rng() < 0.5 ? shrub : rock, x, hAt(x, z), z, rng() * 6.28, 0.6 + rng() * 0.5);
+            const r = rng();
+            b.add(r < 0.45 ? bush : r < 0.75 ? grass : rock(rng()), x, hAt(x, z), z, rng() * 6.28, 0.7 + rng() * 0.5);
           }
           break;
         }
         case TK.GRASS: {
           // keep the tile centre clear for entities: dress the corners only
-          const p = hi ? 0.28 : 0.12;
+          const p = hi ? 0.34 : 0.14;
           if (rng() < p) {
             const ox = (rng() < 0.5 ? -1 : 1) * TILE * (0.38 + rng() * 0.08);
             const oz = (rng() < 0.5 ? -1 : 1) * TILE * (0.38 + rng() * 0.08);
             const r = rng();
-            const g = r < 0.55 ? shrub : r < 0.75 ? dead : r < 0.9 ? rock : tree;
-            const s = g === rock ? 0.4 + rng() * 0.3 : g === tree ? 0.6 + rng() * 0.3 : 0.7 + rng() * 0.5;
-            b.add(g, cx + ox, hAt(cx + ox, cz + oz), cz + oz, rng() * 6.28, s);
+            const x = cx + ox;
+            const z = cz + oz;
+            if (r < 0.35) b.add(grass, x, hAt(x, z), z, rng() * 6.28, 0.9 + rng() * 0.5);
+            else if (r < 0.65) b.add(bush, x, hAt(x, z), z, rng() * 6.28, 0.7 + rng() * 0.5);
+            else if (r < 0.8) b.add(dead, x, hAt(x, z), z, rng() * 6.28, 0.8 + rng() * 0.3);
+            else if (r < 0.92) b.add(rock(rng()), x, hAt(x, z) - 0.05, z, rng() * 6.28, 0.5 + rng() * 0.4);
+            else b.add(tree, x, hAt(x, z), z, rng() * 6.28, 0.7 + rng() * 0.3);
           }
           break;
         }
       }
     }
   }
+  // ruined 12x12 city blocks from the art library
+  for (const bl of t.blocks) {
+    const body = ruinedBlockBody(bl.seed);
+    if (!body) continue;
+    const x = -HALF + (bl.tx + 0.5) * TILE;
+    const z = -HALF + (bl.ty + 0.5) * TILE;
+    chunkOf(bl.tx, bl.ty).add(body.geom, x, hAt(x, z), z, body.rotY, 1);
+  }
   return batches;
 }
-
 // ------------------------------------------------------------------ roads
 
 function buildRoads(t: WorldTerrain): THREE.BufferGeometry {
@@ -345,6 +362,8 @@ export interface TerrainView {
   grid: THREE.LineSegments;
   water: THREE.Mesh;
   decorVerts: number;
+  /** Merged decor chunk meshes (shadow casting is toggled by zoom). */
+  decor: THREE.Mesh[];
   dispose(): void;
 }
 
@@ -396,6 +415,7 @@ export function buildTerrainView(t: WorldTerrain, quality: 'low' | 'high'): Terr
   disposables.push(roadGeo);
   // decor
   let decorVerts = 0;
+  const decor: THREE.Mesh[] = [];
   const batches = buildDecor(t, quality);
   batches.forEach((b, i) => {
     const g = b.build();
@@ -406,6 +426,7 @@ export function buildTerrainView(t: WorldTerrain, quality: 'low' | 'high'): Terr
     m.receiveShadow = true;
     m.name = 'decor_' + i;
     group.add(m);
+    decor.push(m);
     disposables.push(g);
   });
   // faint tile grid (tactical-map feel), faded in when zoomed in
@@ -427,6 +448,7 @@ export function buildTerrainView(t: WorldTerrain, quality: 'low' | 'high'): Terr
     grid,
     water,
     decorVerts,
+    decor,
     dispose() {
       for (const d of disposables) d.dispose();
     },

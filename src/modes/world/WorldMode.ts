@@ -20,14 +20,14 @@ import { camRequest, camTile, requestCam, selectedEntity, selectedMarch, WORLD_S
 import './world.css';
 
 const SKY = 0xb9c6b4;
-const DEFAULT_DIST = 78;
+const DEFAULT_DIST = 66;
 
 export class WorldMode implements GameMode {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(42, 1, 1, 1200);
   private rig = new CameraRig(this.camera);
-  private sun = new THREE.DirectionalLight(0xfff1d6, 1.9);
-  private hemi = new THREE.HemisphereLight(0xfdf6e3, 0x6a6048, 1.15);
+  private sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
+  private hemi = new THREE.HemisphereLight(0xe8f4ff, 0x7a8a5c, 1.35);
   private terrainView: TerrainView | null = null;
   private entities: EntityView | null = null;
   private marches: MarchView | null = null;
@@ -40,6 +40,7 @@ export class WorldMode implements GameMode {
   private entered = false;
   private tmpV = new THREE.Vector3();
   private tmpP = { x: 0, z: 0 };
+  private viewRect = { minX: -100, maxX: 100, minZ: -100, maxZ: 100 };
   private lastTileX = -1;
   private lastTileY = -1;
   private time = 0;
@@ -96,7 +97,7 @@ export class WorldMode implements GameMode {
     this.rig.attach();
     if (!this.entered) {
       this.entered = true;
-      this.rig.flyTo(0, 12, DEFAULT_DIST, true);
+      this.rig.flyTo(0, 5, DEFAULT_DIST, true);
     }
     this.disposers.push(
       effect(() => {
@@ -179,12 +180,9 @@ export class WorldMode implements GameMode {
     const upp = this.rig.unitsPerPixel();
     const test = (list: readonly PickPoint[], bias: number) => {
       for (const p of list) {
-        this.tmpV.set(p.x, p.y, p.z).project(this.camera);
-        if (this.tmpV.z > 1) continue;
-        const sx = (this.tmpV.x * 0.5 + 0.5) * engine.width;
-        const sy = (-this.tmpV.y * 0.5 + 0.5) * engine.height;
-        const d = Math.hypot(sx - cx, sy - cy);
-        const lim = Math.max(26, p.r / upp);
+        let d = this.screenDist(p.x, p.y, p.z, cx, cy);
+        if (p.by !== undefined) d = Math.min(d, this.screenDist(p.x, p.by, p.z, cx, cy) * 1.15);
+        const lim = Math.max(34, p.r / upp);
         if (d < lim && d * bias < bestD) {
           bestD = d * bias;
           best = p;
@@ -194,6 +192,66 @@ export class WorldMode implements GameMode {
     if (this.marches) test(this.marches.picks, 0.8);
     if (this.entities) test(this.entities.picks, 1);
     return best;
+  }
+
+  /** Ground rectangle under the screen (+ margin) for instance culling. */
+  private computeView(): void {
+    const v = this.viewRect;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    const w = engine.width;
+    const h = engine.height;
+    for (let i = 0; i < 4; i++) {
+      const ok = this.rig.groundAt(i & 1 ? w : 0, i & 2 ? h : 0, this.tmpV);
+      if (!ok) {
+        minX = minZ = -1e9;
+        maxX = maxZ = 1e9;
+        break;
+      }
+      if (this.tmpV.x < minX) minX = this.tmpV.x;
+      if (this.tmpV.x > maxX) maxX = this.tmpV.x;
+      if (this.tmpV.z < minZ) minZ = this.tmpV.z;
+      if (this.tmpV.z > maxZ) maxZ = this.tmpV.z;
+    }
+    const m = 5;
+    v.minX = minX - m;
+    v.maxX = maxX + m;
+    v.minZ = minZ - m;
+    v.maxZ = maxZ + m + 3;
+    this.entities!.setView(v.minX, v.maxX, v.minZ, v.maxZ, this.rig.dist);
+  }
+
+  /** Fits the sun's shadow frustum to the visible ground; decor stops casting when zoomed far out. */
+  private updateShadows(): void {
+    if (!this.sun.castShadow) return;
+    const v = this.viewRect;
+    const cx = Math.max(-500, Math.min(500, (v.minX + v.maxX) / 2));
+    const cz = Math.max(-500, Math.min(500, (v.minZ + v.maxZ) / 2));
+    const ext = THREE.MathUtils.clamp(Math.max(v.maxX - v.minX, v.maxZ - v.minZ) * 0.55, 24, 120);
+    const sc = this.sun.shadow.camera;
+    if (Math.abs(sc.right - ext) > 0.5) {
+      sc.left = -ext;
+      sc.right = ext;
+      sc.top = ext;
+      sc.bottom = -ext;
+      sc.updateProjectionMatrix();
+    }
+    this.sun.position.set(cx - 40, 80, cz + 30);
+    this.sun.target.position.set(cx, 0, cz);
+    const cast = this.rig.dist < 100;
+    if (this.terrainView && this.terrainView.decor[0] && this.terrainView.decor[0].castShadow !== cast) {
+      for (const d of this.terrainView.decor) d.castShadow = cast;
+    }
+  }
+
+  private screenDist(x: number, y: number, z: number, cx: number, cy: number): number {
+    this.tmpV.set(x, y, z).project(this.camera);
+    if (this.tmpV.z > 1) return Infinity;
+    const sx = (this.tmpV.x * 0.5 + 0.5) * engine.width;
+    const sy = (-this.tmpV.y * 0.5 + 0.5) * engine.height;
+    return Math.hypot(sx - cx, sy - cy);
   }
 
   update(dt: number, elapsed: number): void {
@@ -212,20 +270,7 @@ export class WorldMode implements GameMode {
     }
     this.rig.update(dt);
     const tg = this.rig.target;
-    // shadows follow the view
-    if (this.sun.castShadow) {
-      const ext = THREE.MathUtils.clamp(this.rig.dist * 0.95, 28, 110);
-      const sc = this.sun.shadow.camera;
-      if (sc.right !== ext) {
-        sc.left = -ext;
-        sc.right = ext;
-        sc.top = ext;
-        sc.bottom = -ext;
-        sc.updateProjectionMatrix();
-      }
-      this.sun.position.set(tg.x - 40, 80, tg.z + 30);
-      this.sun.target.position.set(tg.x, 0, tg.z);
-    }
+
     const fogNear = this.rig.dist * 1.6 + 40;
     const fog = this.scene.fog as THREE.Fog;
     fog.near = fogNear;
@@ -233,8 +278,10 @@ export class WorldMode implements GameMode {
     if (this.entities && this.marches) {
       this.entities.sync(s, t);
       this.marches.sync(s);
+      this.computeView();
+      this.updateShadows();
       const uiScale = Math.pow(this.rig.dist / DEFAULT_DIST, 0.72);
-      this.entities.update(s, t, elapsed, this.rig.dist, uiScale);
+      this.entities.update(s, t, dt, elapsed, this.rig.dist, uiScale);
       this.marches.update(t, dt, elapsed, uiScale);
     }
     if (this.terrainView) {

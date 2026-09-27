@@ -2,11 +2,13 @@
 import type { ComponentChildren } from 'preact';
 import { closeScreen, openScreen, toast } from '../../core/nav';
 import { fmt } from '../../core/format';
-import type { CurrencyId, Reward } from '../../core/types';
+import type { Reward } from '../../core/types';
 import type { GameState } from '../../core/store';
 import { Icon } from '../../ui/components/Icon';
 import { SCREENS } from '../../ui/screens';
-import { ITEM_LABELS } from '../../data/world';
+import { RewardList as KitRewardList } from '../../ui/components/RewardList';
+import { rewardSummary, scaleReward } from '../../systems/items';
+import { isEmptyReward } from '../../core/economy';
 import { safeSquadPower, squadMarch, marchStatusLabel } from '../../systems/world';
 import { squadReady } from '../../systems/heroes';
 import { sfx } from '../../core/audio';
@@ -16,49 +18,19 @@ export function hasScreen(id: string): boolean {
   return !!SCREENS[id];
 }
 
-const CUR_NAMES: Record<string, string> = { food: 'Food', iron: 'Iron', gold: 'Gold', diamonds: 'Diamonds', heroExp: 'Hero EXP' };
-
-export function rewardText(r: Reward): string {
-  const parts: string[] = [];
-  for (const [k, v] of Object.entries(r.currencies ?? {})) if (v) parts.push(`${fmt(v)} ${CUR_NAMES[k] ?? k}`);
-  for (const [k, v] of Object.entries(r.items ?? {})) if (v) parts.push(`${v}x ${ITEM_LABELS[k] ?? k}`);
-  return parts.join(', ');
-}
-
 /** Shows the meta "You received" popup when available, else a toast. Caller grants first. */
 export function showRewards(title: string, reward: Reward): void {
   sfx.reward();
   if (hasScreen('rewards')) openScreen('rewards', { title, reward });
-  else toast(`${title}: ${rewardText(reward)}`, 'good');
+  else toast(`${title}: ${rewardSummary(reward)}`, 'good');
 }
 
-export function RewardList(props: { reward: Reward; mult?: number }) {
-  const m = props.mult ?? 1;
-  const cur = Object.entries(props.reward.currencies ?? {}) as [CurrencyId, number][];
-  const items = Object.entries(props.reward.items ?? {});
-  if (!cur.length && !items.length) return <div class="wm-dim">No loot</div>;
-  return (
-    <div class="wm-rewards">
-      {cur.map(([k, v]) =>
-        v ? (
-          <span class="wm-reward" key={k}>
-            <Icon name={k} size={18} />
-            {fmt(v * m)}
-          </span>
-        ) : null,
-      )}
-      {items.map(([k, v]) =>
-        v ? (
-          <span class="wm-reward wm-reward-item" key={k}>
-            <WIcon name="crate" size={16} />
-            {ITEM_LABELS[k] ?? k} x{Math.round((v ?? 0) * m)}
-          </span>
-        ) : null,
-      )}
-    </div>
-  );
+/** Reward tiles (meta UI kit), optionally multiplied. */
+export function RewardList(props: { reward: Reward; mult?: number; size?: number }) {
+  const r = props.mult && props.mult !== 1 ? scaleReward(props.reward, props.mult) : props.reward;
+  if (isEmptyReward(r)) return <div class="wm-dim">No loot</div>;
+  return <KitRewardList reward={r} size={props.size ?? 46} center={false} class="wm-kit-rewards" />;
 }
-
 /** "Your squad vs enemy" power comparison. */
 export function PowerCompare(props: { mine: number; enemy: number; enemyLabel?: string }) {
   const { mine, enemy } = props;

@@ -5,6 +5,15 @@
   inset: 0;
   pointer-events: none;
   font-family: var(--font);
+  /* the shared .hud-top / .world-btn styles (meta HUD kit) read these */
+  --hud-side: max(8px, var(--safe-right));
+  --hud-left: max(8px, var(--safe-left));
+}
+.wm-top-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
 }
 .wm-hud button {
   pointer-events: auto;
@@ -34,15 +43,6 @@
 }
 
 /* ---------------- top bar ---------------- */
-.wm-top {
-  position: absolute;
-  top: calc(var(--safe-top) + 6px);
-  left: 6px;
-  right: 6px;
-  display: flex;
-  gap: 5px;
-  align-items: center;
-}
 .wm-stam {
   display: flex;
   align-items: center;
@@ -72,32 +72,10 @@
   margin-left: 3px;
   font-variant-numeric: tabular-nums;
 }
-.wm-res {
-  flex: 1;
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-  min-width: 0;
-}
-.wm-res-chip {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-  background: rgba(10, 18, 28, 0.8);
-  border: 1px solid #ffffff26;
-  border-radius: 14px;
-  padding: 3px 7px 3px 3px;
-  font-weight: 800;
-  font-size: 12.5px;
-  text-shadow: 0 1px 1px #000;
-  white-space: nowrap;
-}
-
 /* ---------------- march chips ---------------- */
 .wm-marches {
   position: absolute;
-  top: calc(var(--safe-top) + 50px);
+  top: calc(var(--safe-top) + 96px);
   left: 6px;
   display: flex;
   flex-direction: column;
@@ -255,27 +233,6 @@
   font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 1px #000;
 }
-.wm-base-btn {
-  position: absolute;
-  right: 10px;
-  bottom: calc(var(--safe-bottom) + 12px);
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  border: 3px solid #fff;
-  background: radial-gradient(circle at 35% 30%, #86d0ff, #2f7fd8 55%, #16457e);
-  font-weight: 900;
-  font-size: 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  padding: 0;
-  box-shadow: 0 4px 12px #000b, inset 0 -5px 0 #0003;
-  text-shadow: 0 1px 2px #000;
-}
-
 /* ---------------- onboarding tip / locked ---------------- */
 .wm-tip {
   position: absolute;

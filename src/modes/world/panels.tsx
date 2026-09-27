@@ -5,14 +5,16 @@ import { game, mutate, useGame } from '../../core/store';
 import { closeScreen, openScreen, toast } from '../../core/nav';
 import { clock, now } from '../../core/tick';
 import { fmt, fmtDuration } from '../../core/format';
-import { consumeItemIn } from '../../core/economy';
+import { useItem } from '../../systems/items';
+import { itemDef } from '../../data/items';
+import { ItemIcon } from '../../ui/components/ItemIcon';
 import { isUnlocked, unlockHint } from '../../core/unlocks';
 import { Bar, Btn, Countdown, Modal, Screen, Tabs } from '../../ui/components/common';
 import { Icon } from '../../ui/components/Icon';
 import { startBattle } from '../../systems/battle';
 import * as D from '../../data/world';
 import {
-  addStaminaIn,
+  settleStamina,
   claimRadarMission,
   coordLabel,
   entityById,
@@ -241,7 +243,7 @@ function ReportCard(props: { r: WorldReport; open: boolean; onToggle: () => void
           <RewardList reward={r.loot} />
           {r.note && <div class="wm-info">{r.note}</div>}
           {fight && (
-            <div class="wm-dim small">{r.win ? 'Loot is delivered when the squad returns home.' : 'Train more soldiers or strengthen your heroes, then try again.'}</div>
+            !r.win && <div class="wm-dim small">Train more soldiers or strengthen your heroes, then try again.</div>
           )}
           {fight && r.attackers.length > 0 && r.defenders.length > 0 && (
             <div class="wm-actions">
@@ -345,15 +347,11 @@ export function StaminaModal(props: { screenKey: number }) {
   const next = nextStaminaAt(s, t);
   const potions = s.items.stamina_potion ?? 0;
   const fullIn = cur < max ? (max - cur - 1) * D.STAMINA_REGEN_MS + (next ? next - t : 0) : 0;
+  const potion = itemDef('stamina_potion');
   const use = () => {
-    let ok = false;
-    mutate((st) => {
-      if (consumeItemIn(st, 'stamina_potion', 1)) {
-        addStaminaIn(st, D.STAMINA_POTION_AMOUNT, now());
-        ok = true;
-      }
-    });
-    if (ok) toast(`+${D.STAMINA_POTION_AMOUNT} stamina`, 'good');
+    // settle regen first so the potion never eats pending regeneration, then use it via the bag system
+    mutate((st) => void settleStamina(st, now()));
+    useItem('stamina_potion', 1);
   };
   return (
     <Modal title="Stamina" onClose={() => closeScreen(props.screenKey)}>
@@ -372,11 +370,11 @@ export function StaminaModal(props: { screenKey: number }) {
         Attacks cost {D.STAMINA_COST.normal} (elites &amp; bosses {D.STAMINA_COST.elite}).
       </div>
       <div class="wm-potion card">
-        <Icon name="stamina" size={26} />
+        <ItemIcon id="stamina_potion" size={40} />
         <div class="wm-potion-main">
-          <b>Stamina Potion</b>
+          <b>{potion.name}</b>
           <div class="wm-dim small">
-            +{D.STAMINA_POTION_AMOUNT} stamina · owned: {potions}
+            {potion.desc} Owned: {potions}
           </div>
         </div>
         <Btn color="green" small disabled={potions <= 0} onClick={use}>
