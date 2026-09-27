@@ -20,7 +20,10 @@ const THREAT_NAMES: Record<ZombieKind, string> = { walker: 'Walkers', runner: 'S
 export function RunnerLevels(props: { screenKey?: number }) {
   const s = useGame();
   const nextLevel = Math.min(LEVEL_COUNT, s.runner.level);
-  const initial = s.runner.lastSelected > 0 && s.runner.lastSelected <= nextLevel ? s.runner.lastSelected : nextLevel;
+  // Reopen on the remembered level only while it is still uncleared; otherwise jump to the next new level
+  // (so players aren't steered into spending replay passes).
+  const remembered = s.runner.lastSelected;
+  const initial = remembered > 0 && remembered <= nextLevel && !isCleared(s, remembered) ? remembered : nextLevel;
   const [sel, setSel] = useState(initial);
   const [chapter, setChapter] = useState(chapterOf(initial));
   const chLock = chapterLock(s, chapter);

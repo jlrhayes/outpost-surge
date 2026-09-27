@@ -12,6 +12,8 @@ import type { RunOutcome } from './progress';
 import { registerRunnerIcons } from './icons';
 import { RewardList } from '../../ui/components/RewardList';
 import './runner.css';
+import { mutate } from '../../core/store';
+import { buildingName } from '../../data/buildings';
 
 registerRunnerIcons();
 
@@ -230,9 +232,9 @@ function ResultOverlay(props: { r: RunOutcome }) {
   );
 }
 
-/** "+N soldiers, M sent home as supplies" (troops beyond Drill Ground space pay food + iron instead). */
+/** "+N soldiers, M sent home as supplies" (troops beyond Parade Yard space pay food + iron instead). */
 function troopNote(r: RunOutcome): string {
-  const joined = r.troops > 0 ? `+${r.troops} soldiers joined your army` : 'No room in your Drill Ground';
+  const joined = r.troops > 0 ? `+${r.troops} soldiers joined your army` : `No room in your ${buildingName('drill')}`;
   if (r.overflow <= 0) return joined + '.';
   return `${joined}, ${r.overflow} sent home as supplies.`;
 }
@@ -274,7 +276,13 @@ function resultButtons(r: RunOutcome) {
       {retry}
       {r.next !== null && (
         <div class="rn-next-wrap">
-          <Btn color="green" disabled={!!r.nextLock} onClick={() => goTo('runner', { level: r.next })}>
+          <Btn color="green" disabled={!!r.nextLock} onClick={() => {
+            const next = r.next!;
+            mutate((st) => {
+              st.runner.lastSelected = next;
+            });
+            goTo('runner', { level: next });
+          }}>
             Next {levelLabel(r.next)}
           </Btn>
           {r.nextLock && <div class="rn-next-lock">{r.nextLock}</div>}

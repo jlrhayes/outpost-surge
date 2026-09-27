@@ -1,6 +1,6 @@
 // OWNER: heroes agent. 'campaign' screen: next district card, enemy preview, recommended vs squad power,
 // Battle button, upcoming districts and the idle loot truck.
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { useGame } from '../../core/store';
 import { openScreen, toast } from '../../core/nav';
 import { sfx } from '../../core/audio';
@@ -88,15 +88,20 @@ function CounterHint(props: { types: HeroType[]; squad: HeroType[] }) {
   );
 }
 
-function LootTruck() {
+function LootTruck(props: { focus?: boolean }) {
   const s = useGame();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Opened from the base's loot truck: bring the Claim button into view.
+    if (props.focus) setTimeout(() => ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80);
+  }, []);
   const t = clock.value;
   const cleared = districtsClearedCount(s);
   const loot = idleLoot(s, t);
   const rates = idleRates(s);
   const has = Object.keys(loot.reward.currencies ?? {}).length > 0;
   return (
-    <div class="truck card">
+    <div class="truck card" ref={ref}>
       <div class="truck-head">
         <ItemIcon id="truck" size={34} />
         <div style={{ flex: 1 }}>
@@ -155,7 +160,7 @@ function LootTruck() {
   );
 }
 
-export function CampaignScreen() {
+export function CampaignScreen(props: { focus?: 'loot' }) {
   const s = useGame();
   const squads = unlockedSquadIds(s).filter((id) => squadReady(s, id));
   // Prefer a squad that is at home (not out on a world march).
@@ -284,7 +289,7 @@ export function CampaignScreen() {
         ))}
       </div>
 
-      <LootTruck />
+      <LootTruck focus={props.focus === 'loot'} />
     </Screen>
   );
 }

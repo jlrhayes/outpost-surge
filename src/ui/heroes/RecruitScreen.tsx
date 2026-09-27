@@ -25,6 +25,7 @@ import {
 } from '../../systems/heroes';
 import { HeroPortrait } from './HeroPortrait';
 import { ItemIcon, TypeIcon } from './icons';
+import { buildingName } from '../../data/buildings';
 
 const FLIP_GAP = 260;
 
@@ -204,7 +205,7 @@ export function RecruitScreen() {
           <div class="dim-label">{freeReady ? 'Available now!' : <>Next in {fmtDuration(s.heroes.recruit.freeAt - t)}</>}</div>
           <div class="dim-label">
             Every {fmtDuration(freeRecruitCooldownMs(s))}
-            {getBonus(s, 'recruit_cd_pct') > 0 && <> · Tavern −{Math.round(Math.min(75, getBonus(s, 'recruit_cd_pct')))}%</>}
+            {getBonus(s, 'recruit_cd_pct') > 0 && <> · {buildingName('tavern')} −{Math.round(Math.min(75, getBonus(s, 'recruit_cd_pct')))}%</>}
           </div>
         </div>
         <Btn color="green" disabled={!freeReady || !unlocked} onClick={() => doPull(1, 'free')}>

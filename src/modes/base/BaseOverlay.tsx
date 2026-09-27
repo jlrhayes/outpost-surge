@@ -221,7 +221,7 @@ function LootTruckLabel({ s, t }: { s: GameState; t: number }) {
         onClick={() => {
           sfx.click();
           toast('Clear District 1 to start collecting loot', 'info');
-          openScreen('campaign');
+          openScreen('campaign', { focus: 'loot' });
         }}
       >
         <Lock size={16} />
@@ -235,7 +235,7 @@ function LootTruckLabel({ s, t }: { s: GameState; t: number }) {
   let top: [string, number] | null = null;
   for (const [k, v] of Object.entries(cur)) if (v && (!top || v > top[1])) top = [k, v];
   return (
-    <button class={'bo-veh loot interactive' + (idleLootReady(s, t) ? ' ready' : '')} onClick={() => openScreen('campaign')}>
+    <button class={'bo-veh loot interactive' + (idleLootReady(s, t) ? ' ready' : '')} onClick={() => openScreen('campaign', { focus: 'loot' })}>
       <Crate size={20} />
       <span>Loot Truck</span>
       {loot.capped ? (
