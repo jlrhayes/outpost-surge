@@ -6,7 +6,7 @@ import { Btn } from '../../ui/components/common';
 import { BATTLE_MAX_TIME } from '../../systems/battle';
 import { HeroPortrait, ZombiePortrait } from '../../ui/heroes/HeroPortrait';
 import { ItemIcon } from '../../ui/heroes/icons';
-import { RewardList } from '../../ui/heroes/parts';
+import { RewardList as RewardTiles } from '../../ui/components/RewardList';
 import '../../ui/heroes/heroes.css';
 import { banner, battleControls, battleView, callouts, setOverlayHost, type UnitSnapshot } from './view';
 
@@ -126,7 +126,7 @@ function ResultOverlay() {
         {won && req.rewards && (
           <div class="br-section">
             <div class="br-h">Rewards</div>
-            <RewardList reward={req.rewards} size={24} class="br-rewards" />
+            <RewardTiles reward={req.rewards} size={50} labels animate />
           </div>
         )}
         {dealt.length > 0 && (

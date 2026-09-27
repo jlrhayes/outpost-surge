@@ -18,9 +18,9 @@ export interface ArenaLook {
 }
 
 export const ARENA_LOOK: Record<ArenaKind, ArenaLook> = {
-  road: { sky: 0x9ccbee, fogNear: 38, fogFar: 85, sun: 0xfff2d8, sunIntensity: 1.9, hemiSky: 0xe8f4ff, hemiGround: 0x6a6a4a },
-  wasteland: { sky: 0xe6c898, fogNear: 30, fogFar: 75, sun: 0xffe2b0, sunIntensity: 2.0, hemiSky: 0xfff0d8, hemiGround: 0x8a6a40 },
-  city: { sky: 0xaab4c2, fogNear: 34, fogFar: 80, sun: 0xf4f0ff, sunIntensity: 1.7, hemiSky: 0xe0e8f4, hemiGround: 0x5a5a60 },
+  road: { sky: 0x9ccbee, fogNear: 38, fogFar: 85, sun: 0xfff1dc, sunIntensity: 2.6, hemiSky: 0xe8f4ff, hemiGround: 0x7a8a5c },
+  wasteland: { sky: 0xe6c898, fogNear: 30, fogFar: 75, sun: 0xffe6c0, sunIntensity: 2.6, hemiSky: 0xfff0d8, hemiGround: 0x8a7a50 },
+  city: { sky: 0xaab4c2, fogNear: 34, fogFar: 80, sun: 0xf4f0ff, sunIntensity: 2.4, hemiSky: 0xe0e8f4, hemiGround: 0x6a6a64 },
 };
 
 const m4 = new THREE.Matrix4();

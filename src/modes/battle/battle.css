@@ -221,7 +221,7 @@
 }
 .bh-timer.urgent {
   color: #ff6a5a;
-  animation: pulse 0.8s ease-in-out infinite;
+  animation: h-pulse 0.8s ease-in-out infinite;
 }
 .bh-controls {
   display: flex;
@@ -524,7 +524,7 @@
   height: 1000px;
   margin: -500px 0 0 -500px;
   background: repeating-conic-gradient(from 0deg, rgba(255, 220, 120, 0.12) 0deg 9deg, transparent 9deg 18deg);
-  animation: spin 30s linear infinite;
+  animation: h-spin 30s linear infinite;
 }
 .battle-result.lose .br-rays {
   display: none;
@@ -594,27 +594,6 @@
   color: #a9bccf;
   margin-bottom: 6px;
 }
-.br-rewards .rw-cell {
-  animation: rw-pop 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) both;
-}
-.br-rewards .rw-cell:nth-child(2) {
-  animation-delay: 0.08s;
-}
-.br-rewards .rw-cell:nth-child(3) {
-  animation-delay: 0.16s;
-}
-.br-rewards .rw-cell:nth-child(4) {
-  animation-delay: 0.24s;
-}
-.br-rewards .rw-cell:nth-child(n + 5) {
-  animation-delay: 0.32s;
-}
-@keyframes rw-pop {
-  from {
-    transform: scale(0.3);
-    opacity: 0;
-  }
-}
 .br-row {
   display: flex;
   align-items: center;
@@ -651,10 +630,10 @@
 .br-dmg-fill {
   height: 100%;
   background: linear-gradient(90deg, #ff9a3a, #ffe060);
-  animation: grow 0.8s ease-out;
+  animation: h-grow 0.8s ease-out;
   transform-origin: left;
 }
-@keyframes grow {
+@keyframes h-grow {
   from {
     transform: scaleX(0);
   }

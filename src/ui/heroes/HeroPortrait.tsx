@@ -519,7 +519,7 @@ export function PortraitSvg(props: { heroId: string; size?: number }): JSX.Eleme
   const size = props.size ?? 64;
   const ear = darken(skin, 0.1);
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" class="hp-svg">
+    <svg width={size} height={size} viewBox="7 6 86 86" class="hp-svg">
       <defs>
         <radialGradient id={gid} cx="50%" cy="38%" r="75%">
           <stop offset="0%" stop-color={bgIn} />

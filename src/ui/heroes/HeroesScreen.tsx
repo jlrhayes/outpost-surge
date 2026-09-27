@@ -3,7 +3,7 @@ import { useState } from 'preact/hooks';
 import { useGame } from '../../core/store';
 import { openScreen } from '../../core/nav';
 import type { HeroType } from '../../core/types';
-import { Btn, Screen, Tabs } from '../components/common';
+import { Btn, Screen, SectionTitle, Tabs } from '../components/common';
 import { HEROES, heroDef, RARITY_ORDER } from '../../data/heroes';
 import { allHeroesPower, heroHasUpgrade, heroPower, heroSquadOf } from '../../systems/heroes';
 import { HeroCard, PowerTag } from './parts';
@@ -75,7 +75,7 @@ export function HeroesScreen() {
       {owned.length === 0 && <div class="empty-note">No {filter === 'all' ? '' : filter} heroes yet. Recruit some!</div>}
       {unowned.length > 0 && (
         <>
-          <div class="section-title">Not recruited</div>
+          <SectionTitle>Not recruited</SectionTitle>
           <div class="hero-grid">
             {unowned.map((d) => (
               <HeroCard key={d.id} heroId={d.id} pendingShards={s.heroes.pendingShards[d.id]} onClick={() => openScreen('heroDetail', { heroId: d.id })} />

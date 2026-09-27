@@ -47,6 +47,10 @@ export interface BattleResult {
 }
 
 export const BATTLE_DT = 0.1;
+/** Energy: heroes start with some, gain per attack and per hit taken; the tactic skill fires at 100. */
+export const START_ENERGY = 25;
+export const ENERGY_PER_ATTACK = 24;
+export const ENERGY_PER_HIT_TAKEN = 5;
 export const BATTLE_MAX_TIME = 60;
 
 /** tank > missile > aircraft > tank */
@@ -204,7 +208,7 @@ function makeUnit(c: Combatant, rng: () => number): U {
     u.lifesteal = (pv.lifesteal ?? 0) * k;
     u.rage = (pv.rage ?? 0) * k;
     u.thorns = (pv.thorns ?? 0) * k;
-    u.energy = Math.min(ACTIVE_ENERGY - 1, (pv.energy ?? 0) * k);
+    u.energy = Math.min(ACTIVE_ENERGY - 1, START_ENERGY + (pv.energy ?? 0) * k);
   } else if (c.type === 'zombie') {
     const z = zombieAbilityFor(c);
     u.interval = z.interval;
@@ -352,7 +356,7 @@ export function simulateBattle(a: Combatant[], b: Combatant[], seed = 1): Battle
     if (tgt.hp <= 0) {
       kill(tgt, t);
     } else {
-      gainEnergy(tgt, 4, t);
+      gainEnergy(tgt, ENERGY_PER_HIT_TAKEN, t);
       if (tgt.boss && !tgt.enraged && tgt.hp < tgt.maxHp / 2) {
         tgt.enraged = true;
         events.push({ t, kind: 'buff', from: tgt.uid, to: [tgt.uid], stat: 'atk', pct: 30, dur: 99 });
@@ -476,7 +480,7 @@ export function simulateBattle(a: Combatant[], b: Combatant[], seed = 1): Battle
       u.attacks++;
       if (u.auto && u.auto.effects.length && u.attacks % u.auto.every === 0) runSkill(u, u.auto, t, false);
       else basicAttack(u, t);
-      gainEnergy(u, 20, t);
+      gainEnergy(u, ENERGY_PER_ATTACK, t);
     }
     u.nextAt = r2(t + u.interval / hasteMult(u, t));
   }

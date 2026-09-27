@@ -1,6 +1,6 @@
 // OWNER: heroes agent. Small inline SVG icons used by hero/battle screens.
 import type { HeroRole, HeroType } from '../../core/types';
-import { Icon } from '../components/Icon';
+import { Icon, hasIcon } from '../components/Icon';
 
 export const TYPE_COLOR: Record<HeroType, string> = { tank: '#7cc04a', aircraft: '#4ab0ff', missile: '#ff8a3a' };
 
@@ -133,9 +133,24 @@ const ITEM_ICONS: Record<string, (s: number) => preact.JSX.Element> = {
   ),
 };
 
-/** Icon for items/currencies used by hero screens (falls back to the shared Icon set). */
+/** Ids drawn with the shared (meta) icon set so hero screens match the rest of the UI. */
+const SHARED: Record<string, string> = {
+  recruit_ticket: 'ticket',
+  skill_medal: 'medal',
+  shard: 'shard_ssr',
+  shard_universal_ssr: 'shard_ssr',
+  shard_universal_ur: 'shard_ur',
+  lock: 'lock',
+  truck: 'truck',
+  skull: 'skull',
+  swords: 'swords',
+};
+
+/** Icon for items/currencies used by hero screens (shared icon set first, local fallbacks). */
 export function ItemIcon(props: { id: string; size?: number }) {
   const s = props.size ?? 18;
+  const shared = SHARED[props.id];
+  if (shared && hasIcon(shared)) return <Icon name={shared} size={s} />;
   const f = ITEM_ICONS[props.id];
   if (f) return <span class="icon">{f(s)}</span>;
   return <Icon name={props.id} size={s} />;

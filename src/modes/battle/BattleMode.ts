@@ -8,7 +8,7 @@ import { goTo } from '../../core/nav';
 import { sfx } from '../../core/audio';
 import { fmt } from '../../core/format';
 import type { Combatant, HeroType } from '../../core/types';
-import { bossModel, soldierGeometry, vcMaterial, vehicleModel, zombieGeometry } from '../../three/models';
+import { animateModel, bossModel, soldierGeometry, vcMaterial, vehicleModel, zombieGeometry } from '../../three/models';
 import { simulateBattle, type BattleEvent, type BattleRequest, type BattleResult } from '../../systems/battle';
 import { squadCombatants, type BattleUnit } from '../../systems/heroes';
 import { districtInfo } from '../../systems/campaign';
@@ -142,6 +142,10 @@ class UnitVis {
   bob = Math.random() * 6;
   smokeT = 0;
   crashed = false;
+  /** The model group (for animateModel) and the boss's swingable weapon arm. */
+  model: THREE.Object3D | null = null;
+  arm: THREE.Object3D | null = null;
+  swingT = -1;
   heroId?: string;
   label: string;
 
@@ -177,9 +181,9 @@ class UnitVis {
 
 export class BattleMode implements GameMode {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(48, 1, 0.1, 220);
-  private hemi = new THREE.HemisphereLight(0xffffff, 0x556644, 1.3);
-  private sun = new THREE.DirectionalLight(0xffffff, 1.8);
+  readonly camera = new THREE.PerspectiveCamera(40, 1, 0.1, 240);
+  private hemi = new THREE.HemisphereLight(0xe8f4ff, 0x7a8a5c, 1.5);
+  private sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
   private arena: THREE.Group | null = null;
   private fx = new FxSystem();
   private overlay = new BattleOverlay();
@@ -198,8 +202,8 @@ export class BattleMode implements GameMode {
   private snapT = 0;
   private finished = false;
   private camDist = 26;
-  private camLook = new THREE.Vector3(0, 0, 0.6);
-  private camDir = new THREE.Vector3(0, 0.8, -0.6).normalize();
+  private camLook = new THREE.Vector3(0, 0, -0.7);
+  private camDir = new THREE.Vector3(0, 0.86, -0.51).normalize();
   private width = 1;
   private height = 1;
   private sfxHitT = 0;
@@ -301,7 +305,7 @@ export class BattleMode implements GameMode {
     const vfov = THREE.MathUtils.degToRad(this.camera.fov);
     const hTan = Math.tan(vfov / 2) * this.camera.aspect;
     // Fit the formation width (±4.8 at the near back row) on narrow portrait screens.
-    this.camDist = Math.max(23, 4.8 / hTan + 6);
+    this.camDist = Math.max(27, 5.1 / hTan + 3);
     this.camera.updateProjectionMatrix();
   }
 
@@ -332,10 +336,10 @@ export class BattleMode implements GameMode {
       let z: number;
       if (side === 'A') z = c.slot <= 1 ? A_FRONT_Z : A_BACK_Z;
       else if (u.kind === 'boss') {
-        z = 1.3;
+        z = 2.3;
         if (frontCount === 1 && c.slot <= 1) x = 0;
-      } else if (u.kind === 'zombies') z = c.slot <= 1 ? 0.3 : u.zkind === 'spitter' ? 4.9 : 2.7;
-      else z = c.slot <= 1 ? 3.4 : 7.2;
+      } else if (u.kind === 'zombies') z = c.slot <= 1 ? 1.2 : u.zkind === 'spitter' ? 6.6 : 4.3;
+      else z = c.slot <= 1 ? 3.6 : 7.4;
       u.home.set(x, 0, z);
       u.start.set(x, 0, z - 9 * u.face);
       u.base.copy(u.start);
@@ -365,8 +369,12 @@ export class BattleMode implements GameMode {
   private makeVehicle(u: UnitVis): void {
     const type = u.kind as HeroType;
     const g = vehicleModel(type, u.c.rarity ?? 'SR');
+    // Keep the aircraft's ground blob shadow on the ground while the body bobs/swoops.
+    const blob = g.getObjectByName('blobShadow');
+    if (blob) u.root.add(blob);
     this.collectMats(u, g);
     u.body.add(g);
+    u.model = g;
     u.height = type === 'aircraft' ? 3.3 : 2.6;
     u.hitY = type === 'aircraft' ? 1.5 : 0.8;
     const troops = (u.c as BattleUnit).troops ?? 0;
@@ -385,6 +393,8 @@ export class BattleMode implements GameMode {
     const g = bossModel();
     this.collectMats(u, g);
     u.body.add(g);
+    u.model = g;
+    u.arm = g.getObjectByName('weaponArm') ?? null;
     u.height = 4.7;
     u.hitY = 1.9;
     u.radius = 2.1;
@@ -399,16 +409,16 @@ export class BattleMode implements GameMode {
     const inst = new THREE.InstancedMesh(geom, vcMaterial(), n);
     inst.castShadow = true;
     inst.frustumCulled = false;
-    const spread = u.zkind === 'brute' ? 1.05 : u.zkind === 'runner' ? 0.8 : 0.85;
-    u.memberScale = u.zkind === 'brute' ? 1.0 : 1.18;
+    const spread = u.zkind === 'brute' ? 1.15 : u.zkind === 'runner' ? 0.9 : 0.95;
+    u.memberScale = u.zkind === 'brute' ? 1.15 : 1.35;
     if (u.zkind === 'spitter') u.tint.setRGB(0.75, 1.25, 0.65);
     else if (u.zkind === 'runner') u.tint.setRGB(1.1, 0.95, 0.9);
     for (const [ox, oz] of pattern(n)) u.members.push({ ox: ox * spread, oz: oz * spread, phase: Math.random() * 6, alive: true, dieT: 0 });
     for (let i = 0; i < n; i++) inst.setColorAt(i, u.tint);
     u.inst = inst;
     u.root.add(inst);
-    u.height = u.zkind === 'brute' ? 3.2 : 2.3;
-    u.hitY = u.zkind === 'brute' ? 1.4 : 0.8;
+    u.height = u.zkind === 'brute' ? 3.5 : 2.5;
+    u.hitY = u.zkind === 'brute' ? 1.5 : 0.9;
     u.radius = 1.4;
   }
 
@@ -717,6 +727,7 @@ export class BattleMode implements GameMode {
         }
         case 'boss': {
           this.lunge(s, t, 0.5, 0);
+          s.swingT = 0;
           this.schedule(travel, () => {
             this.fx.explosion(to, 0.6);
             apply();
@@ -769,6 +780,7 @@ export class BattleMode implements GameMode {
     if (s.kind === 'boss') {
       // Tremor Slam: jump, then a shockwave.
       this.pushCallout(s, ev.name ?? 'Slam');
+      s.swingT = 0;
       s.lungeVec.set(0, 0, 0);
       s.lungeT = 0;
       s.lungeDur = 0.5;
@@ -800,7 +812,7 @@ export class BattleMode implements GameMode {
     t.hp = hpAfter ?? Math.max(0, t.hp - dmg);
     t.shield = Math.max(0, t.shield - absorbed);
     if (!visual || !t.alive) return;
-    t.flashT = 0.13;
+    t.flashT = t.kind === 'boss' ? 0.09 : 0.13;
     const cls = t.side === 'A' ? (crit ? 'dmg-a crit-a' : 'dmg-a') : crit ? 'crit' : isSkill ? 'skill' : 'dmg-b';
     if (absorbed > 0 && absorbed >= dmg) this.popAt(t, 'BLOCK', 'shield');
     else this.popAt(t, (crit ? 'CRIT ' : '') + fmt(dmg - absorbed), cls);
@@ -922,7 +934,7 @@ export class BattleMode implements GameMode {
     } else if (u.alive) {
       _v2.copy(u.home);
       // Melee zombies in the back row advance once their front row has fallen.
-      if (u.side === 'B' && u.kind === 'zombies' && u.slot > 1 && u.zkind !== 'spitter' && !ownFrontAlive) _v2.z = 0.6;
+      if (u.side === 'B' && u.kind === 'zombies' && u.slot > 1 && u.zkind !== 'spitter' && !ownFrontAlive) _v2.z = 1.2;
       const d = _v2.distanceTo(u.base);
       if (d > 0.01) u.base.lerp(_v2, Math.min(1, (dt * 1.6) / d));
     }
@@ -991,18 +1003,30 @@ export class BattleMode implements GameMode {
     } else if (u.kind === 'boss') {
       const b = u.body;
       b.rotation.z = Math.sin(u.bob * 0.8) * 0.05;
+      if (u.arm) {
+        // Raise the weapon, then smash down.
+        let ax = Math.sin(u.bob * 0.6) * 0.08;
+        if (u.swingT >= 0) {
+          u.swingT += dt;
+          const k = Math.min(1, u.swingT / 0.5);
+          ax = k < 0.55 ? -1.5 * (k / 0.55) : -1.5 + 2.3 * ((k - 0.55) / 0.45);
+          if (k >= 1) u.swingT = -1;
+        }
+        u.arm.rotation.x = ax;
+      }
       if (!u.alive) {
         u.deadT += dt;
         b.rotation.x = -Math.min(Math.PI / 2, u.deadT * 2.5);
         b.position.y = -Math.max(0, u.deadT - 1.2) * 0.8;
       } else b.position.y = celebrate ? Math.abs(Math.sin(t * 5)) * 0.4 : 0;
     }
+    if (u.model && u.alive) animateModel(u.model, dt, t);
     // ---- flash / char tint
     if (u.mats.length) {
-      const f = u.flashT > 0 ? u.flashT / 0.13 : 0;
+      const f = u.flashT > 0 ? (u.flashT / 0.13) * (u.kind === 'boss' ? 0.45 : 0.7) : 0;
       for (let i = 0; i < u.mats.length; i++) {
         const m = u.mats[i];
-        if (m.emissive) m.emissive.setRGB(f, f * 0.35, f * 0.2);
+        if (m.emissive) m.emissive.setRGB(f, f * 0.3, f * 0.15);
         if (m.color) {
           if (!u.alive && u.kind !== 'boss') m.color.copy(u.baseColors[i]).multiplyScalar(Math.max(0.28, 1 - u.deadT * 1.5));
           else m.color.copy(u.baseColors[i]);
@@ -1010,6 +1034,7 @@ export class BattleMode implements GameMode {
       }
     }
     // ---- zombie crowd
+    if (!u.alive && u.kind === 'zombies') u.deadT += dt;
     if (u.inst) this.animateMembers(u, u.inst, u.members, dt, true, celebrate);
     if (u.soldiers) this.animateMembers(u, u.soldiers, u.soldierMembers, dt, false, celebrate);
     // ---- shield bubble

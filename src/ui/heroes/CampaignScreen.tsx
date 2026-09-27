@@ -6,26 +6,21 @@ import { openScreen, toast } from '../../core/nav';
 import { sfx } from '../../core/audio';
 import { clock } from '../../core/tick';
 import { fmt, fmtDuration } from '../../core/format';
-import { Bar, Btn, Screen } from '../components/common';
+import { Bar, Btn, Screen, SectionTitle } from '../components/common';
 import { Icon } from '../components/Icon';
 import { ZOMBIE_KINDS, IDLE_CAP_HOURS } from '../../data/campaign';
 import { squadPower, squadReady, unlockedSquadIds } from '../../systems/heroes';
 import { claimIdleLoot, districtInfo, districtsClearedCount, idleLoot, idleRates, startDistrictBattle } from '../../systems/campaign';
 import type { BattleUnit } from '../../systems/heroes';
 import type { Reward } from '../../core/types';
-// Read lazily at click time (circular import is safe: never touched during module init).
-import { SCREENS } from '../screens';
 import { ZombiePortrait } from './HeroPortrait';
 import { ItemIcon } from './icons';
 import { PowerTag, RewardList } from './parts';
+import { RewardList as RewardTiles } from '../components/RewardList';
 
-/** Opens meta's shared 'rewards' popup when available, otherwise falls back to a toast. */
+/** Opens meta's shared 'rewards' popup (display only: the reward was already granted). */
 function showRewards(title: string, reward: Reward): void {
-  if (SCREENS['rewards']) openScreen('rewards', { title, reward });
-  else {
-    const parts = Object.entries(reward.currencies ?? {}).map(([k, v]) => `+${fmt(v ?? 0)} ${k === 'heroExp' ? 'EXP' : k}`);
-    toast(`${title}: ${parts.join(', ')}`, 'good');
-  }
+  openScreen('rewards', { title, reward });
 }
 
 function difficulty(ratio: number): { label: string; cls: string } {
@@ -183,7 +178,7 @@ export function CampaignScreen() {
         )}
         <div class="dc-rewards">
           <div class="dim-label">Clear rewards</div>
-          <RewardList reward={info.rewards} size={20} />
+          <RewardTiles reward={info.rewards} size={44} center={false} />
         </div>
         <div class="dc-actions">
           <Btn color="blue" onClick={() => openScreen('formation', { squadId })}>
@@ -207,7 +202,7 @@ export function CampaignScreen() {
         {ratio < 0.8 && <div class="dc-tip">Tip: level up heroes, train soldiers and use a same-type squad to raise power.</div>}
       </div>
 
-      <div class="section-title">Upcoming</div>
+      <SectionTitle>Upcoming</SectionTitle>
       <div class="upcoming">
         {upcoming.map((u) => (
           <div class={`up-item ${u.boss ? 'boss' : ''}`} key={u.stage}>

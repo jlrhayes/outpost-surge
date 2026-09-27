@@ -120,17 +120,5 @@ export function RewardList(props: { reward: Reward; size?: number; class?: strin
       </div>,
     );
   }
-  return <div class={'reward-list ' + (props.class ?? '')}>{cells}</div>;
-}
-
-export function StatRow(props: { label: string; value: ComponentChildren; icon?: ComponentChildren }) {
-  return (
-    <div class="stat-row">
-      <span class="stat-label">
-        {props.icon}
-        {props.label}
-      </span>
-      <span class="stat-value">{props.value}</span>
-    </div>
-  );
+  return <div class={'hrw-list ' + (props.class ?? '')}>{cells}</div>;
 }
