@@ -1,16 +1,23 @@
-// OWNER: runner agent. Special Ops progression: level/chapter gating, rewards, recording results.
+// OWNER: runner agent. Special Ops progression: level/chapter gating, rewards, replay passes, recording
+// results.
 import { game, mutate, type GameState } from '../../core/store';
 import { grantIn } from '../../core/economy';
 import { emit } from '../../core/events';
+import { now } from '../../core/tick';
 import { isUnlocked, unlockHint } from '../../core/unlocks';
-import { hqLevel } from '../../systems/buildings';
-import { bestTroopTier } from '../../systems/troops';
+import { hqLevel, maxTrainTier } from '../../systems/buildings';
+import { troopRoom } from '../../systems/troops';
 import type { Reward } from '../../core/types';
 import { CHAPTERS, LEVEL_COUNT, chapterOf, isBossLevel, LEVELS_PER_CHAPTER } from '../../data/runner';
 
-/** Max soldiers converted into troops per level (first clear) and on replays. */
+/** Max soldiers converted into troops per level (first clear) and on rewarded replays. */
 export const TROOP_CAP_FIRST = 60;
-export const TROOP_CAP_REPLAY = 25;
+export const TROOP_CAP_REPLAY = 5;
+/** Rewarded replays: passes stored (max) and regen time per pass. Replays without a pass are practice. */
+export const PASS_MAX = 5;
+export const PASS_REGEN_MS = 30 * 60_000;
+/** Soldiers that don't fit in the Drill Ground are sent home as supplies. */
+export const OVERFLOW_PAY = { food: 20, iron: 15 };
 
 export function chapterLock(s: GameState, chapter: number): string | null {
   if (!isUnlocked(s, 'runner')) return unlockHint('runner') || 'Locked';
@@ -45,20 +52,71 @@ export function chapterStars(s: GameState, chapter: number): number {
   return n;
 }
 
-/** Stars from the share of the peak squad that survived. */
+/** Stars from the share of the peak squad that survived: 75% = 3 stars, 45% = 2 stars. */
 export function starsFor(survivors: number, peak: number): number {
   if (survivors <= 0) return 0;
   const p = peak > 0 ? survivors / peak : 1;
-  return p >= 0.6 ? 3 : p >= 0.3 ? 2 : 1;
+  return p >= 0.75 ? 3 : p >= 0.45 ? 2 : 1;
 }
 
-/** Rewards for winning `level` (not the intro). Used for the result screen and the level preview. */
-export function levelReward(s: GameState, level: number, survivors: number, stars: number, firstClear: boolean): Reward {
-  const tier = bestTroopTier(s);
-  const troops = Math.min(firstClear ? TROOP_CAP_FIRST : TROOP_CAP_REPLAY, Math.floor(firstClear ? survivors : survivors * 0.5));
+// ---------------------------------------------------------------------------------------------
+// Replay passes (absolute timestamps: offline regen is automatic).
+
+/** Brings the stored passes up to date. Mutates `s`; returns true if anything changed. */
+export function refreshPasses(s: GameState, t: number): boolean {
+  const r = s.runner;
+  if (r.passes >= PASS_MAX) {
+    if (r.passAt === 0) return false;
+    r.passAt = 0;
+    return true;
+  }
+  if (!r.passAt) {
+    r.passAt = t + PASS_REGEN_MS;
+    return true;
+  }
+  if (t < r.passAt) return false;
+  const n = 1 + Math.floor((t - r.passAt) / PASS_REGEN_MS);
+  r.passes = Math.min(PASS_MAX, r.passes + n);
+  r.passAt = r.passes >= PASS_MAX ? 0 : r.passAt + n * PASS_REGEN_MS;
+  return true;
+}
+
+/** Passes available right now (read-only view for UIs between ticks). */
+export function passesNow(s: GameState, t = now()): { passes: number; nextAt: number } {
+  const r = s.runner;
+  if (r.passes >= PASS_MAX || !r.passAt) return { passes: Math.min(PASS_MAX, r.passes), nextAt: 0 };
+  if (t < r.passAt) return { passes: r.passes, nextAt: r.passAt };
+  const n = 1 + Math.floor((t - r.passAt) / PASS_REGEN_MS);
+  const passes = Math.min(PASS_MAX, r.passes + n);
+  return { passes, nextAt: passes >= PASS_MAX ? 0 : r.passAt + n * PASS_REGEN_MS };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Rewards
+
+/** Splits returning soldiers into troops that fit in the Drill Ground and overflow. */
+export function troopSplit(s: GameState, n: number): { troops: number; overflow: number } {
+  const troops = Math.max(0, Math.min(n, troopRoom(s)));
+  return { troops, overflow: Math.max(0, n - troops) };
+}
+
+export interface Payout {
+  reward: Reward;
+  /** Soldiers that joined the army as troops. */
+  troops: number;
+  /** Soldiers with no room in the Drill Ground (paid as supplies instead). */
+  overflow: number;
+}
+
+/**
+ * Rewards for winning `level` (not the intro). Troops arrive at the highest tier the Barracks can train,
+ * clamped to free Drill Ground space; each soldier that doesn't fit pays OVERFLOW_PAY instead.
+ */
+export function levelPayout(s: GameState, level: number, survivors: number, stars: number, firstClear: boolean): Payout {
+  const n = Math.min(firstClear ? TROOP_CAP_FIRST : TROOP_CAP_REPLAY, Math.floor(firstClear ? survivors : survivors * 0.5));
   const starMult = 0.7 + 0.15 * Math.max(1, stars);
   const mult = starMult * (firstClear ? 1 : 0.4);
-  const currencies: Reward['currencies'] = {
+  const currencies: NonNullable<Reward['currencies']> = {
     food: round50((400 + level * 160) * mult),
     iron: round50((300 + level * 120) * mult),
     heroExp: round50((150 + level * 70) * mult),
@@ -75,21 +133,29 @@ export function levelReward(s: GameState, level: number, survivors: number, star
       items.speedup_5m = 2;
     }
   }
-  const reward: Reward = { currencies };
-  if (Object.keys(items).length) reward.items = items;
-  if (troops > 0) reward.troops = { [tier]: troops };
-  return reward;
+  return finish(s, currencies, items, n);
+}
+
+/** Back-compat helper (level preview): just the reward. */
+export function levelReward(s: GameState, level: number, survivors: number, stars: number, firstClear: boolean): Reward {
+  return levelPayout(s, level, survivors, stars, firstClear).reward;
 }
 
 /** One-off reward for finishing the opening run. */
-export function introReward(s: GameState, survivors: number): Reward {
-  const tier = bestTroopTier(s);
-  const troops = Math.min(TROOP_CAP_FIRST, survivors);
-  const reward: Reward = {
-    currencies: { food: 2500, iron: 2000, heroExp: 1200, diamonds: 50 },
-  };
-  if (troops > 0) reward.troops = { [tier]: troops };
-  return reward;
+export function introPayout(s: GameState, survivors: number): Payout {
+  return finish(s, { food: 2500, iron: 2000, heroExp: 1200, diamonds: 50 }, {}, Math.min(TROOP_CAP_FIRST, survivors));
+}
+
+function finish(s: GameState, currencies: NonNullable<Reward['currencies']>, items: NonNullable<Reward['items']>, soldiers: number): Payout {
+  const { troops, overflow } = troopSplit(s, soldiers);
+  if (overflow > 0) {
+    currencies.food = (currencies.food ?? 0) + overflow * OVERFLOW_PAY.food;
+    currencies.iron = (currencies.iron ?? 0) + overflow * OVERFLOW_PAY.iron;
+  }
+  const reward: Reward = { currencies };
+  if (Object.keys(items).length) reward.items = items;
+  if (troops > 0) reward.troops = { [Math.max(1, maxTrainTier(s))]: troops };
+  return { reward, troops, overflow };
 }
 
 export interface RunSummary {
@@ -106,6 +172,13 @@ export interface RunOutcome extends RunSummary {
   prevStars: number;
   firstClear: boolean;
   reward: Reward | null;
+  /** Soldiers that joined the army / were sent home as supplies (no room). */
+  troops: number;
+  overflow: number;
+  /** Replays: a rewarded-replay pass was spent, or none was left (practice run, no rewards). */
+  usedPass: boolean;
+  practice: boolean;
+  passesLeft: number;
   /** Next level to offer after this result (null = none). */
   next: number | null;
   nextLock: string | null;
@@ -117,15 +190,26 @@ export function recordRun(sum: RunSummary): RunOutcome {
   let prevStars = 0;
   let firstClear = false;
   let reward: Reward | null = null;
+  let troops = 0;
+  let overflow = 0;
+  let usedPass = false;
+  let practice = false;
+  let passesLeft = 0;
+  const t = now();
   mutate((s) => {
     const r = s.runner;
     r.runs++;
+    refreshPasses(s, t);
+    passesLeft = r.passes;
     if (sum.intro) {
       if (sum.won) {
         stars = starsFor(sum.survivors, sum.peak);
         if (!r.introDone) {
-          reward = introReward(s, sum.survivors);
-          grantIn(s, reward);
+          const p = introPayout(s, sum.survivors);
+          reward = p.reward;
+          troops = p.troops;
+          overflow = p.overflow;
+          grantIn(s, p.reward);
         }
         r.introDone = true;
       }
@@ -135,8 +219,22 @@ export function recordRun(sum: RunSummary): RunOutcome {
     stars = starsFor(sum.survivors, sum.peak);
     prevStars = r.stars[sum.level] ?? 0;
     firstClear = sum.level >= r.level;
-    reward = levelReward(s, sum.level, sum.survivors, stars, firstClear);
-    grantIn(s, reward);
+    if (!firstClear) {
+      // Rewarded replays cost a pass; without one the run still counts (stars/best) but pays nothing.
+      if (r.passes > 0) {
+        r.passes--;
+        if (!r.passAt) r.passAt = t + PASS_REGEN_MS;
+        usedPass = true;
+      } else practice = true;
+      passesLeft = r.passes;
+    }
+    if (!practice) {
+      const p = levelPayout(s, sum.level, sum.survivors, stars, firstClear);
+      reward = p.reward;
+      troops = p.troops;
+      overflow = p.overflow;
+      grantIn(s, p.reward);
+    }
     r.wins++;
     if (stars > prevStars) r.stars[sum.level] = stars;
     if (sum.survivors > (r.best[sum.level] ?? 0)) r.best[sum.level] = sum.survivors;
@@ -153,14 +251,14 @@ export function recordRun(sum: RunSummary): RunOutcome {
     next = sum.level + 1;
     nextLock = levelLock(game, next);
   }
-  return { ...sum, stars, prevStars, firstClear, reward, next, nextLock };
+  return { ...sum, stars, prevStars, firstClear, reward, troops, overflow, usedPass, practice, passesLeft, next, nextLock };
 }
 
 /** Player skipped the opening run from the pause menu: still mark it done and hand out the starter pack. */
 export function skipIntro(): void {
   if (game.runner.introDone) return;
   mutate((s) => {
-    grantIn(s, introReward(s, 0));
+    grantIn(s, introPayout(s, 0).reward);
     s.runner.introDone = true;
   });
 }

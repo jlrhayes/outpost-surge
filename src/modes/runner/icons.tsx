@@ -15,6 +15,14 @@ export const RN_SVG: Record<string, string> = {
     '<path d="M12 2c3 3 4 7 4 11l-4 3-4-3c0-4 1-8 4-11z" fill="#e8e8e8" stroke="#555" stroke-width="1.4"/><circle cx="12" cy="9" r="1.8" fill="#3a9cf0"/><path d="M8 13l-3 4 3-1M16 13l3 4-3-1" fill="#d04030" stroke="#7a1a10" stroke-width="1.2"/><path d="M10 17l2 5 2-5" fill="#ff9a2a" stroke="#b05a10" stroke-width="1.1"/>',
   explosive:
     '<path d="M12 2l2.5 5 5-2-2 5 5 2.5-5 2 2 5-5-2L12 22l-2.5-4.5-5 2 2-5L2 12l4.5-2.5-2-5 5 2z" fill="#ff7a2a" stroke="#9a2a00" stroke-width="1.3" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.5" fill="#ffe070"/>',
+  heal: '<rect x="3" y="3" width="18" height="18" rx="4" fill="#f4f6f2" stroke="#1d6f60" stroke-width="1.5"/><path d="M10 6h4v4h4v4h-4v4h-4v-4H6v-4h4z" fill="#19b39a" stroke="#0d5a4d" stroke-width="1.1" stroke-linejoin="round"/>',
+  spitter:
+    '<circle cx="15.5" cy="11" r="6" fill="#b8f23a" stroke="#4f7a10" stroke-width="1.4"/><circle cx="9" cy="8" r="4" fill="#8fb070" stroke="#3a5a2a" stroke-width="1.4"/><circle cx="7.8" cy="7.4" r="0.9" fill="#ffe24a"/><path d="M6 21l1.5-8h5l1.5 8z" fill="#6a5a8a" stroke="#2a2440" stroke-width="1.3"/><path d="M8 11.5q1 3 -1 5" stroke="#b8f23a" stroke-width="1.6" fill="none" stroke-linecap="round"/>',
+  spread:
+    '<path d="M3 13h7l2-2h3v4h-3l-2-2" fill="#5a6470" stroke="#1e242c" stroke-width="1.3" stroke-linejoin="round"/><path d="M15 13l6-6M15 13h7M15 13l6 6" stroke="#ffb347" stroke-width="2" stroke-linecap="round"/>',
+  cannon:
+    '<rect x="2" y="10" width="11" height="6" rx="1.5" fill="#5a6470" stroke="#1e242c" stroke-width="1.3"/><circle cx="17.5" cy="13" r="4.5" fill="#ff8a2a" stroke="#8a3a00" stroke-width="1.4"/><circle cx="16.3" cy="11.8" r="1.4" fill="#ffe0a0"/>',
+  hazard: '<path d="M12 3l10 18H2z" fill="#ffc414" stroke="#3a2a00" stroke-width="1.6" stroke-linejoin="round"/><rect x="11" y="9" width="2" height="6.5" rx="1" fill="#222"/><circle cx="12" cy="18" r="1.2" fill="#222"/>',
   skull:
     '<path d="M12 2c5 0 8 3.5 8 8 0 3-1.5 4.5-3 5.5V19h-2v2h-2v-2h-2v2H9v-2H7v-3.5C5.5 14.5 4 13 4 10c0-4.5 3-8 8-8z" fill="#f2efe6" stroke="#3a3a3a" stroke-width="1.4"/><circle cx="8.8" cy="10.5" r="2.2" fill="#3a3a3a"/><circle cx="15.2" cy="10.5" r="2.2" fill="#3a3a3a"/><path d="M11 14l1-2 1 2z" fill="#3a3a3a"/>',
   walker:

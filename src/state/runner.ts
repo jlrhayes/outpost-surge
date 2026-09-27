@@ -16,8 +16,12 @@ export interface RunnerState {
   wins: number;
   /** Level last selected in the level-select screen (0 = follow progress). */
   lastSelected: number;
+  /** Rewarded-replay passes stored (max 5); replays of cleared levels without one pay nothing. */
+  passes: number;
+  /** Absolute time (ms, `now()`) the next pass arrives; 0 while full. */
+  passAt: number;
 }
 
 export function defaultRunnerState(): RunnerState {
-  return { level: 1, stars: {}, introDone: false, best: {}, runs: 0, wins: 0, lastSelected: 0 };
+  return { level: 1, stars: {}, introDone: false, best: {}, runs: 0, wins: 0, lastSelected: 0, passes: 5, passAt: 0 };
 }

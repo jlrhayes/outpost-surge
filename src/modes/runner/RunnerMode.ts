@@ -9,7 +9,21 @@ import { game } from '../../core/store';
 import { goTo } from '../../core/nav';
 import { sfx } from '../../core/audio';
 import { bonusMult, getBonus } from '../../core/bonuses';
-import { CHAPTERS, levelDef, SIM, THEMES, type BarrelDef, type GateDef, type LevelDef, type WaveDef } from '../../data/runner';
+import {
+  CHAPTERS,
+  levelDef,
+  SIM,
+  THEMES,
+  WEAPON_LEVEL_MULT,
+  WEAPONS,
+  type BarrelDef,
+  type BossDef,
+  type GateDef,
+  type HazardDef,
+  type LevelDef,
+  type WaveDef,
+  type WeaponKind,
+} from '../../data/runner';
 import { RunnerEnv } from './env';
 import { Fx, type FloatKind } from './fx';
 import { Squad } from './squad';
@@ -18,7 +32,10 @@ import { BarrelView } from './barrels';
 import { Horde, type Zombie } from './zombies';
 import { BossView } from './boss';
 import { Helpers, type HelperTarget } from './helpers';
-import { Bullets } from './bullets';
+import { BULLET_PELLET, BULLET_RIFLE, BULLET_SHELL, Bullets } from './bullets';
+import { Acid } from './acid';
+import { HazardView } from './hazards';
+import { hazardGlowMat } from './mats';
 import { skyTexture } from './textures';
 import { nextKey, runActions, runHud } from './runState';
 import { recordRun, skipIntro } from './progress';
@@ -29,6 +46,12 @@ type Phase = 'run' | 'boss' | 'won' | 'lost';
 const LANE_LIMIT = SIM.roadHalf - 0.55;
 const GATE_SPAWN = 100;
 const BARREL_SPAWN = 90;
+const HAZARD_SPAWN = 110;
+/** The opening run never drops the squad below this many soldiers (it can't be lost). */
+const INTRO_FLOOR = 10;
+/** Seconds without input before the opening run starts steering for the player. */
+const ASSIST_IDLE = 2.5;
+const clampX = (x: number) => Math.max(-LANE_LIMIT, Math.min(LANE_LIMIT, x));
 
 export class RunnerMode implements GameMode {
   readonly scene = new THREE.Scene();
@@ -54,8 +77,12 @@ export class RunnerMode implements GameMode {
   private helpers!: Helpers;
   private bullets!: Bullets;
   private boss: BossView | null = null;
+  private acid!: Acid;
+  /** Gate views (canvas textures + materials) are kept across runs so their shaders never recompile. */
+  private gatePool: GateView[] | null = null;
   private gates: GateView[] = [];
   private barrels: BarrelView[] = [];
+  private hazards: HazardView[] = [];
 
   // Run state.
   private phase: Phase = 'run';
@@ -69,6 +96,11 @@ export class RunnerMode implements GameMode {
   /** Weapon upgrades collected this run (shown as heavy gunners in the squad). */
   private upgrades = 0;
   private dmgBonus = 1;
+  /** Current gun (weapon gates swap it) and its level 1..3. */
+  private weapon: WeaponKind = 'rifle';
+  private weaponLv = 1;
+  /** Soldiers lost so far this level (reinforcement crates bring some back). */
+  private lostPool = 0;
   private fireAcc = 0;
   private flashAcc = 0;
   private simT = 0;
@@ -79,6 +111,7 @@ export class RunnerMode implements GameMode {
   private nextGate = 0;
   private nextBarrel = 0;
   private nextWave = 0;
+  private nextHazard = 0;
   private nextCaption = 0;
   private captionT = 0;
   private pendingLoss = 0;
@@ -100,6 +133,9 @@ export class RunnerMode implements GameMode {
   private dragStartX = 0;
   private dragStartTarget = 0;
   private hasDragged = false;
+  /** Sim time of the last steering input (drives the opening run's auto-assist). */
+  private lastInputT = 0;
+  private assisting = false;
   private keyL = false;
   private keyR = false;
 
@@ -171,11 +207,23 @@ export class RunnerMode implements GameMode {
     this.scene.add(this.helpers.group);
     this.bullets = new Bullets();
     this.scene.add(this.bullets.mesh);
-    this.gates = [];
-    for (let i = 0; i < 6; i++) {
-      const g = new GateView();
-      this.gates.push(g);
+    this.acid = new Acid();
+    this.scene.add(this.acid.group);
+    if (!this.gatePool) {
+      this.gatePool = [];
+      for (let i = 0; i < 6; i++) this.gatePool.push(new GateView());
+    }
+    this.gates = this.gatePool;
+    for (const g of this.gates) {
+      g.hide();
+      g.pair = null;
       this.scene.add(g.group);
+    }
+    this.hazards = [];
+    for (let i = 0; i < 3; i++) {
+      const h = new HazardView(hi);
+      this.hazards.push(h);
+      this.scene.add(h.group);
     }
     this.barrels = [];
     for (let i = 0; i < 6; i++) {
@@ -193,6 +241,9 @@ export class RunnerMode implements GameMode {
     this.dmgMult = 1;
     this.multi = 0;
     this.upgrades = 0;
+    this.weapon = 'rifle';
+    this.weaponLv = 1;
+    this.lostPool = 0;
     this.dmgBonus = intro ? 1 : bonusMult(game, 'runner_damage_pct');
     this.fireAcc = 0;
     this.simT = 0;
@@ -200,7 +251,7 @@ export class RunnerMode implements GameMode {
     this.slowmo = 0;
     this.endTimer = -1;
     this.recorded = false;
-    this.nextGate = this.nextBarrel = this.nextWave = this.nextCaption = 0;
+    this.nextGate = this.nextBarrel = this.nextWave = this.nextHazard = this.nextCaption = 0;
     this.captionT = 0;
     this.pendingLoss = 0;
     this.lossT = 0;
@@ -214,6 +265,8 @@ export class RunnerMode implements GameMode {
     this.bossExplosions = 0;
     this.boss = null;
     this.hasDragged = false;
+    this.lastInputT = 0;
+    this.assisting = false;
     this.dragId = -1;
     this.keyL = this.keyR = false;
     const start = this.def.startSoldiers + (intro ? 0 : Math.floor(getBonus(game, 'runner_start_soldiers')));
@@ -256,6 +309,8 @@ export class RunnerMode implements GameMode {
     this.active = true;
     this.updateCamera(0);
     this.env.update(0);
+    // Warm up this scene's shaders off the main thread where the browser supports it.
+    engine.renderer.compileAsync(this.scene, this.camera).catch(() => {});
     if (import.meta.env.DEV) {
       (window as any).__runner = this;
       void import('./devtools');
@@ -290,12 +345,16 @@ export class RunnerMode implements GameMode {
     this.horde.dispose();
     this.helpers.dispose();
     this.bullets.dispose();
+    this.acid.dispose();
     this.boss?.dispose();
     this.boss = null;
-    for (const g of this.gates) g.dispose();
+    // Gate views are pooled across runs (never disposed); hazards share cached geometry/materials.
+    for (const g of this.gates) g.hide();
+    for (const h of this.hazards) h.hide();
     for (const b of this.barrels) b.dispose();
     this.gates = [];
     this.barrels = [];
+    this.hazards = [];
     for (const ch of [...this.scene.children]) {
       if (ch !== this.hemi && ch !== this.sun && ch !== this.sun.target) this.scene.remove(ch);
     }
@@ -323,6 +382,7 @@ export class RunnerMode implements GameMode {
     this.dragId = e.pointerId;
     this.dragStartX = e.clientX;
     this.dragStartTarget = this.targetX;
+    this.lastInputT = this.simT;
     try {
       engine.canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -335,7 +395,8 @@ export class RunnerMode implements GameMode {
     const ref = Math.min(engine.width, 560);
     const span = SIM.roadHalf * 2 * 1.3;
     const dx = ((e.clientX - this.dragStartX) / ref) * span;
-    this.targetX = Math.max(-LANE_LIMIT, Math.min(LANE_LIMIT, this.dragStartTarget + dx));
+    this.targetX = clampX(this.dragStartTarget + dx);
+    this.lastInputT = this.simT;
     if (!this.hasDragged && Math.abs(dx) > 0.4) {
       this.hasDragged = true;
       runHud.dragHint.value = false;
@@ -397,12 +458,14 @@ export class RunnerMode implements GameMode {
     // Steering.
     if (this.keyL || this.keyR) {
       this.targetX += (this.keyR ? 1 : -1) * 9 * realDt;
-      this.targetX = Math.max(-LANE_LIMIT, Math.min(LANE_LIMIT, this.targetX));
+      this.targetX = clampX(this.targetX);
+      this.lastInputT = this.simT;
       if (!this.hasDragged) {
         this.hasDragged = true;
         runHud.dragHint.value = false;
       }
     }
+    if (this.params.intro && this.phase === 'run') this.introAssist(dt);
     if (this.phase === 'run' || this.phase === 'boss') sq.x += (this.targetX - sq.x) * Math.min(1, dt * 13);
 
     this.spawnAhead();
@@ -410,8 +473,10 @@ export class RunnerMode implements GameMode {
     if (fighting) this.fire(dt);
     this.updateBullets(dt);
 
-    // Zombies.
+    // Zombies (+ spitter acid).
     this.horde.update(dt, sq.x, sq.d, sq.radius, sq.depth, this.onZombieContact, this.onZombiePassed);
+    if (this.horde.alive.spitter > 0 && fighting) this.updateSpitters(dt);
+    this.acid.update(dt, this.onAcidLand);
 
     // Barrels.
     for (const b of this.barrels) {
@@ -429,6 +494,19 @@ export class RunnerMode implements GameMode {
       g.update(dt);
       if (g.fading === 0 && sq.d >= g.d && this.phase === 'run') this.passGate(g);
     }
+
+    // Lane hazards.
+    let hz = false;
+    for (const h of this.hazards) {
+      if (!h.active) continue;
+      hz = true;
+      h.update(this.simT);
+      if (!h.passed && sq.d >= h.d && this.phase === 'run') {
+        h.passed = true;
+        this.crossHazard(h);
+      } else if (h.d - sq.d < -8) h.hide();
+    }
+    if (hz) hazardGlowMat().opacity = 0.2 + 0.16 * (0.5 + 0.5 * Math.sin(this.simT * 7));
 
     // Helpers.
     const helperDmg = Math.max(4, this.dps() * 0.55);
@@ -483,6 +561,7 @@ export class RunnerMode implements GameMode {
     sq.update(dt, this.simT);
     this.horde.render(this.simT);
     this.bullets.render();
+    this.acid.render(this.simT);
 
     // Throttled HUD sync.
     this.hudT -= realDt;
@@ -519,6 +598,14 @@ export class RunnerMode implements GameMode {
     while (this.nextWave < def.waves.length && def.waves[this.nextWave].d - sqd < SIM.waveWake) {
       this.spawnWave(def.waves[this.nextWave++]);
     }
+    while (this.nextHazard < def.hazards.length && def.hazards[this.nextHazard].d - sqd < HAZARD_SPAWN) {
+      this.spawnHazard(def.hazards[this.nextHazard++]);
+    }
+  }
+
+  private spawnHazard(def: HazardDef): void {
+    const h = this.hazards.find((x) => !x.active);
+    if (h) h.setup(def);
   }
 
   private spawnGate(def: GateDef): GateView | null {
@@ -543,15 +630,22 @@ export class RunnerMode implements GameMode {
 
   // ------------------------------------------------------------------------------------------
   private dps(): number {
-    return this.squad.count * SIM.fireRate * this.rateMult * this.dmgMult * this.dmgBonus * (1 + SIM.multiDamage * this.multi);
+    const gun = WEAPONS[this.weapon].dmg * WEAPON_LEVEL_MULT[this.weaponLv];
+    return this.squad.count * SIM.fireRate * this.rateMult * this.dmgMult * this.dmgBonus * (1 + SIM.multiDamage * this.multi) * gun;
   }
 
   private fire(dt: number): void {
     const sq = this.squad;
+    const W = WEAPONS[this.weapon];
     const shots = sq.count * SIM.fireRate * this.rateMult;
-    const volleys = Math.min(SIM.bulletCap * this.rateMult, shots);
+    // Visual volleys are capped; each carries the pooled damage of many shots. Heavier guns fire fewer,
+    // harder volleys (which also means fewer gate hits).
+    const volleys = Math.min(SIM.bulletCap * this.rateMult, shots) * W.rate;
     if (volleys <= 0) return;
-    const perBullet = (shots * this.dmgMult * this.dmgBonus) / volleys;
+    const perVolley = (shots * this.dmgMult * this.dmgBonus * W.dmg * WEAPON_LEVEL_MULT[this.weaponLv]) / volleys;
+    const perPellet = perVolley / W.pellets;
+    const kind = this.weapon === 'spread' ? BULLET_PELLET : this.weapon === 'cannon' ? BULLET_SHELL : BULLET_RIFLE;
+    const range = SIM.bulletRange * W.range;
     this.fireAcc += volleys * dt;
     let guard = 0;
     while (this.fireAcc >= 1 && guard++ < 8) {
@@ -559,12 +653,16 @@ export class RunnerMode implements GameMode {
       sq.shooter(this.tmpP);
       const x = this.tmpP.x;
       const d = this.tmpP.d;
-      this.bullets.spawn(x, 0.62, d, perBullet);
+      for (let p = 0; p < W.pellets; p++) {
+        const vx = W.pellets > 1 ? (p - (W.pellets - 1) / 2) * 6.5 : 0;
+        this.bullets.spawn(x, 0.62, d, perPellet, kind, vx, range);
+      }
       for (let k = 1; k <= this.multi; k++) {
         const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.32;
-        this.bullets.spawn(x + off, 0.62, d - 0.1, perBullet * SIM.multiDamage);
+        this.bullets.spawn(x + off, 0.62, d - 0.1, perPellet * SIM.multiDamage, kind, 0, range);
       }
       this.fx.muzzle(x, 0.66, d);
+      if (kind === BULLET_SHELL) this.fx.sparks(x, 0.8, d + 0.3, 0xffa040, 3, 3);
       sfx.shoot();
     }
     if (this.fireAcc > 1) this.fireAcc = 1;
@@ -583,76 +681,107 @@ export class RunnerMode implements GameMode {
     const b = this.bullets;
     const step = SIM.bulletSpeed * dt;
     const sqd = this.squad.d;
+    const edge = SIM.roadHalf + 0.6;
     for (let i = b.n - 1; i >= 0; i--) {
-      const d0 = b.d[i];
+      let d0 = b.d[i];
       const d1 = d0 + step;
       b.d[i] = d1;
-      if (d1 - sqd > SIM.bulletRange) {
+      if (b.vx[i] !== 0) b.x[i] += b.vx[i] * dt;
+      const x = b.x[i];
+      if (d1 - sqd > b.range[i] || x > edge || x < -edge) {
         b.kill(i);
         continue;
       }
-      const x = b.x[i];
-      // Find the nearest thing along the segment [d0, d1].
-      let bestD = Infinity;
-      let kind = 0; // 1 zombie, 2 barrel, 3 gate, 4 boss
-      let zHit: Zombie | null = null;
-      let bHit: BarrelView | null = null;
-      let gHit: GateView | null = null;
-      const z = this.horde.bulletHit(x, d0, d1);
-      if (z) {
-        bestD = z.d;
-        kind = 1;
-        zHit = z;
-      }
-      for (const br of this.barrels) {
-        if (!br.active) continue;
-        const r = br.radius;
-        if (br.d < d0 - r || br.d > d1 + r || Math.abs(br.x - x) > r) continue;
-        if (br.d < bestD) {
-          bestD = br.d;
-          kind = 2;
-          bHit = br;
-        }
-      }
-      for (const g of this.gates) {
-        if (!g.active || g.fading > 0) continue;
-        if (g.d <= d0 || g.d > d1 + 0.001 || x < g.x0 || x > g.x1) continue;
-        if (g.d < bestD) {
-          bestD = g.d;
-          kind = 3;
-          gHit = g;
-        }
-      }
-      const boss = this.boss;
-      if (boss && boss.alive && boss.state !== 'enter') {
-        const front = boss.d - 0.6 * boss.scale;
-        if (front >= d0 - 1 && front <= d1 + 0.5 && Math.abs(boss.x - x) < boss.halfW && front < bestD) {
-          bestD = front;
-          kind = 4;
-        }
-      }
-      if (kind === 0) continue;
-      const dmg = b.dmg[i];
+      const shell = b.kind[i] === BULLET_SHELL;
       const y = b.y[i];
-      b.kill(i);
-      if (kind === 1 && zHit) this.damageZombie(zHit, dmg, x, y);
-      else if (kind === 2 && bHit) {
-        this.fx.sparks(x, 0.9, bHit.d, 0xffd080, 2, 4);
-        if (bHit.damage(dmg)) this.breakBarrel(bHit);
-      } else if (kind === 3 && gHit) {
-        const flipped = gHit.hit();
-        this.fx.sparks(x, 1.2, gHit.d, gHit.isGood ? 0x8fd0ff : 0xff9080, 2, 3);
-        if (flipped) {
-          this.fx.burst(gHit.side * SIM.laneX, 1.2, gHit.d, 0x6ac0ff, 22, 6);
-          this.fx.ring(gHit.side * SIM.laneX, gHit.d, 2.6, 0x4aa8ff, 0.4);
-          sfx.gateGood();
+      let dmg = b.dmg[i];
+      let spent = false;
+      // A bullet that overkills a zombie keeps going with the leftover damage, so a big squad mows
+      // through a dense horde instead of wasting shots. Cannon shells burst on the first thing hit.
+      for (let pass = 0; pass < 8 && !spent; pass++) {
+        let bestD = Infinity;
+        let kind = 0; // 1 zombie, 2 barrel, 3 gate, 4 boss
+        let zHit: Zombie | null = null;
+        let bHit: BarrelView | null = null;
+        let gHit: GateView | null = null;
+        const z = this.horde.bulletHit(x, d0, d1);
+        if (z) {
+          bestD = z.d;
+          kind = 1;
+          zHit = z;
         }
-      } else if (kind === 4 && boss) {
-        this.fx.sparks(x, 1.6 + Math.random() * 2 * boss.scale, boss.d - 0.8 * boss.scale, 0xffe0a0, 2, 5);
-        this.bossDmgAcc += dmg;
-        if (boss.hit(dmg)) this.bossKilled();
+        for (const br of this.barrels) {
+          if (!br.active) continue;
+          const r = br.radius;
+          if (br.d < d0 - r || br.d > d1 + r || Math.abs(br.x - x) > r) continue;
+          if (br.d < bestD) {
+            bestD = br.d;
+            kind = 2;
+            bHit = br;
+          }
+        }
+        for (const g of this.gates) {
+          if (!g.active || g.fading > 0) continue;
+          if (g.d <= d0 || g.d > d1 + 0.001 || x < g.x0 || x > g.x1) continue;
+          if (g.d < bestD) {
+            bestD = g.d;
+            kind = 3;
+            gHit = g;
+          }
+        }
+        const boss = this.boss;
+        if (boss && boss.alive && boss.state !== 'enter') {
+          const front = boss.d - 0.6 * boss.scale;
+          if (front >= d0 - 1 && front <= d1 + 0.5 && Math.abs(boss.x - x) < boss.halfW && front < bestD) {
+            bestD = front;
+            kind = 4;
+          }
+        }
+        if (kind === 0) break;
+        spent = true;
+        if (kind === 1 && zHit) {
+          if (shell) this.shellBurst(x, zHit, dmg);
+          else if (dmg > zHit.hp + 0.01) {
+            // Pierce: kill it and carry on with what's left.
+            dmg -= zHit.hp;
+            b.dmg[i] = dmg;
+            d0 = zHit.d;
+            this.killZombie(zHit);
+            spent = false;
+          } else this.damageZombie(zHit, dmg, x, y);
+        } else if (kind === 2 && bHit) {
+          this.fx.sparks(x, 0.9, bHit.d, 0xffd080, 2, 4);
+          if (bHit.damage(dmg)) this.breakBarrel(bHit);
+        } else if (kind === 3 && gHit) {
+          const lv = gHit.value;
+          const flipped = gHit.hit();
+          this.fx.sparks(x, 1.2, gHit.d, gHit.kind === 'gun' ? 0xffc050 : gHit.isGood ? 0x8fd0ff : 0xff9080, 2, 3);
+          if (flipped) {
+            this.fx.burst(gHit.side * SIM.laneX, 1.2, gHit.d, 0x6ac0ff, 22, 6);
+            this.fx.ring(gHit.side * SIM.laneX, gHit.d, 2.6, 0x4aa8ff, 0.4);
+            sfx.gateGood();
+          } else if (gHit.kind === 'gun' && gHit.value > lv) {
+            this.fx.burst(gHit.side * SIM.laneX, 1.4, gHit.d, 0xffc040, 24, 6);
+            this.fx.ring(gHit.side * SIM.laneX, gHit.d, 2.6, 0xffa020, 0.4);
+            sfx.upgrade();
+          }
+        } else if (kind === 4 && boss) {
+          this.fx.sparks(x, 1.6 + Math.random() * 2 * boss.scale, boss.d - 0.8 * boss.scale, shell ? 0xffa040 : 0xffe0a0, shell ? 6 : 2, 5);
+          this.bossDmgAcc += dmg;
+          if (boss.hit(dmg)) this.bossKilled();
+        }
       }
+      if (spent) b.kill(i);
     }
+  }
+
+  /** Cannon shell: full damage to the zombie it hits plus a splash around it. */
+  private shellBurst(x: number, z: Zombie, dmg: number): void {
+    const d = z.d;
+    this.damageZombie(z, dmg, x, 0.8);
+    this.fx.burst(x, 0.7, d, 0xffa040, 9, 5);
+    this.fx.ring(x, d, WEAPONS.cannon.splash * 1.2, 0xff8a30, 0.28);
+    this.splash(x, d, WEAPONS.cannon.splash, dmg * 0.55);
   }
 
   private damageZombie(z: Zombie, dmg: number, x: number, y: number): void {
@@ -705,7 +834,7 @@ export class RunnerMode implements GameMode {
     for (const z of this.horde.list) {
       if (z.rise < 0.6 || z.d < d + 3 || z.d > maxD) continue;
       // Prefer big threats a little.
-      const score = z.d - d + Math.abs(z.x - x) * 0.5 - (z.kind === 'brute' ? 6 : z.kind === 'runner' ? 3 : 0);
+      const score = z.d - d + Math.abs(z.x - x) * 0.5 - (z.kind === 'brute' ? 6 : z.kind === 'spitter' ? 5 : z.kind === 'runner' ? 3 : 0);
       if (score < best) {
         best = score;
         out.x = z.x;
@@ -744,21 +873,31 @@ export class RunnerMode implements GameMode {
   private setCount(n: number, fromX?: number, fromD?: number): void {
     const sq = this.squad;
     const before = sq.count;
+    // The opening run is a guaranteed spectacle: the squad never drops below INTRO_FLOOR soldiers.
+    if (this.params.intro && n < before) n = Math.max(n, Math.min(before, INTRO_FLOOR));
     sq.setCount(n, this.fx, fromX, fromD);
     if (sq.count > this.peak) this.peak = sq.count;
     if (sq.count !== before) this.popCount(sq.count > before);
+    if (sq.count < before) this.lostPool += before - sq.count;
     if (sq.count <= 0 && (this.phase === 'run' || this.phase === 'boss')) this.fail();
   }
 
   private loseSoldiers(n: number, x: number, d: number): void {
     const sq = this.squad;
-    const lost = Math.min(sq.count, n);
+    const before = sq.count;
+    if (n <= 0 || before <= 0) return;
+    this.setCount(before - Math.min(before, n));
+    const lost = before - sq.count;
     if (lost <= 0) return;
-    this.setCount(sq.count - lost);
     this.pendingLoss += lost;
     this.lossX = x;
     this.lossD = d;
     if (this.lossT <= 0) this.lossT = 0.18;
+  }
+
+  /** Soldiers a reinforcement crate would bring back right now. */
+  private healAmount(pct: number): number {
+    return this.lostPool > 0 ? Math.max(1, Math.ceil((this.lostPool * pct) / 100)) : 3;
   }
 
   private popCount(up: boolean): void {
@@ -857,8 +996,19 @@ export class RunnerMode implements GameMode {
           this.fx.float(x, 2.4, d, `+${extra}`, 'big-good');
         }
         break;
+      case 'heal': {
+        // Reinforcements: part of the soldiers lost so far come running back.
+        const n = this.healAmount(b.amount);
+        const lostBefore = this.lostPool;
+        this.setCount(sq.count + n, x, d);
+        this.lostPool = Math.max(0, lostBefore - n);
+        this.fx.float(x, 2.6, d, `+${n} REINFORCEMENTS`, 'big-good');
+        runHud.banner.value = { text: 'Reinforcements arrived!', kind: 'good', key: nextKey() };
+        this.fx.burst(x, 1.2, d, 0x6cffd9, 24, 7);
+        break;
+      }
     }
-    this.fx.debris(x, 0.9, d, b.reward === 'soldiers' ? 0x6b7f3a : 0x3d5a78, 12);
+    this.fx.debris(x, 0.9, d, b.reward === 'soldiers' ? 0x6b7f3a : b.reward === 'heal' ? 0xe6ece8 : 0x3d5a78, 12);
     this.fx.burst(x, 1, d, 0xffe070, 16, 6);
     this.fx.ring(x, d, 2.2, 0xffd060, 0.35);
     sfx.reward();
@@ -889,17 +1039,25 @@ export class RunnerMode implements GameMode {
       if (g.value > 0) this.upgrades++;
       this.rateMult = Math.max(0.4, Math.min(4, this.rateMult * (1 + g.value / 100)));
       this.pushWeapon();
+    } else if (g.kind === 'gun') {
+      this.weapon = g.weapon;
+      this.weaponLv = g.value;
+      this.upgrades++;
+      this.pushWeapon();
+      runHud.banner.value = { text: `${WEAPONS[g.weapon].name} LV ${g.value}!`, kind: 'good', key: nextKey() };
     } else {
       if (g.value > 0) this.upgrades++;
       this.dmgMult = Math.max(0.4, Math.min(8, this.dmgMult * (1 + g.value / 100)));
       this.pushWeapon();
     }
     const sub = g.kind === 'rate' ? ' FIRE RATE' : g.kind === 'dmg' ? ' DAMAGE' : '';
-    this.fx.float(sq.x, 2.6, sq.d + 1, label + sub, good ? 'big-good' : 'big-bad');
-    this.fx.burst(cx, 1.4, g.d, good ? 0x5ab8ff : 0xff5a4a, 26, 7);
-    this.fx.ring(sq.x, sq.d, 3.2, good ? 0x4aa8ff : 0xff4a3a, 0.45);
+    const text = g.kind === 'gun' ? WEAPONS[g.weapon].name : label + sub;
+    this.fx.float(sq.x, 2.6, sq.d + 1, text, good ? 'big-good' : 'big-bad');
+    this.fx.burst(cx, 1.4, g.d, g.kind === 'gun' ? 0xffb030 : good ? 0x5ab8ff : 0xff5a4a, 26, 7);
+    this.fx.ring(sq.x, sq.d, 3.2, g.kind === 'gun' ? 0xffa020 : good ? 0x4aa8ff : 0xff4a3a, 0.45);
     if (good) {
-      sfx.gateGood();
+      if (g.kind === 'gun') sfx.upgrade();
+      else sfx.gateGood();
       this.fx.screenFlash('blue');
       if (n > before) this.setCount(n, cx, g.d);
     } else {
@@ -907,29 +1065,168 @@ export class RunnerMode implements GameMode {
       this.fx.addShake(0.3);
       this.fx.screenFlash('red');
       if (n < before) {
-        this.pendingLoss += before - n;
+        this.setCount(n);
+        this.pendingLoss += before - sq.count;
         this.lossX = sq.x;
         this.lossD = sq.d;
         this.lossT = 0.25;
-        this.setCount(n);
       }
     }
   }
 
   private pushWeapon(): void {
     if (this.squad) this.squad.heavies = Math.min(8, this.upgrades * 2);
-    runHud.weapon.value = { rate: this.rateMult, dmg: this.dmgMult, multi: this.multi, helpers: this.helpers?.count ?? 0 };
+    runHud.weapon.value = {
+      rate: this.rateMult,
+      dmg: this.dmgMult,
+      multi: this.multi,
+      helpers: this.helpers?.count ?? 0,
+      gun: this.weapon,
+      gunLv: this.weaponLv,
+    };
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Opening-run assist, spitters, hazards.
+
+  /** How big the squad would be after taking this gate (for the opening's steering assist). */
+  private gateOutcome(g: GateView): number {
+    const c = this.squad.count;
+    if (g.kind === 'add') return c + g.value;
+    if (g.kind === 'mul') return g.value > 0 ? c * g.value : c / -g.value;
+    if (g.kind === 'gun') return c * 1.25;
+    return c * (1 + (g.value / 100) * 0.5);
+  }
+
+  /**
+   * The opening can't be lost and shouldn't stall: after a few seconds without input it gently steers
+   * toward the better gate (or a crate worth shooting). Any touch or key hands control straight back.
+   */
+  private introAssist(dt: number): void {
+    if (this.dragId !== -1 || this.keyL || this.keyR) {
+      this.lastInputT = this.simT;
+      this.assisting = false;
+      return;
+    }
+    if (this.simT - this.lastInputT < ASSIST_IDLE) return;
+    const sq = this.squad;
+    let goal: number | null = null;
+    let gateD = Infinity;
+    for (const g of this.gates) {
+      if (g.active && g.fading === 0 && g.d > sq.d && g.d - sq.d < 48 && g.d < gateD) gateD = g.d;
+    }
+    if (gateD < Infinity) {
+      let best = -Infinity;
+      for (const g of this.gates) {
+        if (!g.active || g.fading > 0 || Math.abs(g.d - gateD) > 0.1) continue;
+        const v = this.gateOutcome(g);
+        if (v > best) {
+          best = v;
+          goal = g.side * SIM.laneX;
+        }
+      }
+    } else {
+      let bd = Infinity;
+      for (const b of this.barrels) {
+        if (!b.active || b.d < sq.d + 4 || b.d - sq.d > 34 || b.d > bd) continue;
+        if (b.reward === 'explosive') {
+          // Step aside from a drum we're about to walk into.
+          if (b.d - sq.d < 12 && Math.abs(b.x - sq.x) < sq.radius + 1) goal = b.x > sq.x ? b.x - sq.radius - 1.6 : b.x + sq.radius + 1.6;
+          continue;
+        }
+        bd = b.d;
+        goal = b.x;
+      }
+    }
+    if (goal === null) return;
+    if (!this.assisting && !this.hasDragged) {
+      runHud.dragHint.value = true;
+      this.dragHintT = Math.max(this.dragHintT, 3);
+    }
+    this.assisting = true;
+    this.targetX += (clampX(goal) - this.targetX) * Math.min(1, dt * 2.4);
+  }
+
+  private updateSpitters(dt: number): void {
+    const sq = this.squad;
+    const every = this.def.spit.every;
+    for (const z of this.horde.list) {
+      if (z.kind !== 'spitter' || z.rise < 1) continue;
+      const ahead = z.d - sq.d;
+      if (ahead > SIM.spitRange || ahead < 6) continue;
+      z.spitCd -= dt;
+      if (z.spitCd > 0) continue;
+      z.spitCd = every * (0.85 + Math.random() * 0.3);
+      z.windup = 1;
+      // Aimed at where the squad will be when it lands, at its current lane: sidestep to dodge.
+      const flight = SIM.spitFlight;
+      this.acid.launch(z.x, z.d, 1.3, clampX(sq.x + (Math.random() - 0.5) * 0.5), sq.d + this.speedNow * flight, flight);
+      this.fx.sparks(z.x, 1.3, z.d, 0xb8f23a, 5, 3);
+    }
+  }
+
+  private onAcidLand = (x: number, d: number): void => {
+    const sq = this.squad;
+    this.fx.burst(x, 0.4, d, 0xb8f23a, 16, 5);
+    this.fx.ring(x, d, SIM.spitSplash * 1.15, 0x9be22a, 0.4);
+    if (this.phase !== 'run' && this.phase !== 'boss') return;
+    // Soldiers inside the splash melt: the share of the drawn blob inside the circle.
+    const r2 = (SIM.spitSplash + 0.15) * (SIM.spitSplash + 0.15);
+    let inside = 0;
+    for (let i = 0; i < sq.rendered; i++) {
+      sq.soldierAt(i, this.tmpP);
+      const dx = this.tmpP.x - x;
+      const dd = this.tmpP.d - d;
+      if (dx * dx + dd * dd <= r2) inside++;
+    }
+    if (inside === 0) {
+      if (Math.abs(sq.d - d) < 6) this.fx.float(x, 1.4, d, 'DODGED!', 'info');
+      return;
+    }
+    const frac = inside / Math.max(1, sq.rendered);
+    const n = Math.max(1, Math.min(Math.ceil(sq.count * this.def.spit.maxShare), Math.round(sq.count * frac * 0.6)));
+    this.loseSoldiers(n, x, d);
+    this.fx.addShake(0.2);
+    sfx.hit();
+  };
+
+  /** The squad crosses a hazard: soldiers standing in its danger zone right now are lost. */
+  private crossHazard(h: HazardView): void {
+    const sq = this.squad;
+    let inside = 0;
+    for (let i = 0; i < sq.rendered; i++) {
+      sq.soldierAt(i, this.tmpP);
+      if (this.tmpP.x >= h.x0 && this.tmpP.x <= h.x1) inside++;
+    }
+    if (inside === 0) {
+      this.fx.float(sq.x, 2.2, sq.d + 1, 'CLEAR!', 'good');
+      return;
+    }
+    const frac = inside / Math.max(1, sq.rendered);
+    const n = Math.max(1, Math.round(sq.count * frac * h.bite));
+    const hx = Math.max(h.x0, Math.min(h.x1, sq.x));
+    this.loseSoldiers(n, hx, h.d);
+    for (let k = 0; k < 4; k++) this.fx.sparks(hx + (Math.random() - 0.5) * 2, 0.6, h.d, 0xffe0a0, 5, 5);
+    this.fx.addShake(0.35);
+    this.fx.screenFlash('red');
+    sfx.gateBad();
   }
 
   // ------------------------------------------------------------------------------------------
   private startBoss(): void {
     this.phase = 'boss';
     const def = this.def;
-    this.boss = new BossView(def.boss, this.squad.d + SIM.bossSpawn, this.quality === 'high');
+    let bossDef: BossDef = def.boss;
+    if (this.params.intro) {
+      // Sized to the squad the player actually brought: a ~6 s showdown, never a wall.
+      const hp = Math.round(Math.max(900, Math.min(9000, this.dps() * 6.5 + this.helpers.count * 200)) / 100) * 100;
+      bossDef = { ...def.boss, hp };
+    }
+    this.boss = new BossView(bossDef, this.squad.d + SIM.bossSpawn, this.quality === 'high');
     this.boss.x = 0;
     this.scene.add(this.boss.group);
-    runHud.banner.value = { text: def.boss.big ? `WARNING: ${def.boss.name}` : `BOSS: ${def.boss.name}`, kind: 'boss', key: nextKey() };
-    runHud.boss.value = { name: def.boss.name, hp: def.boss.hp, max: def.boss.hp, big: def.boss.big };
+    runHud.banner.value = { text: bossDef.big ? `WARNING: ${bossDef.name}` : `BOSS: ${bossDef.name}`, kind: 'boss', key: nextKey() };
+    runHud.boss.value = { name: bossDef.name, hp: bossDef.hp, max: bossDef.hp, big: bossDef.big };
     this.fx.addShake(0.6);
     sfx.explode();
     this.minionT = def.boss.minionEvery;
@@ -1103,6 +1400,7 @@ export class RunnerMode implements GameMode {
       v.set(b.x, 2.1, -b.d).project(this.camera);
       const vis = v.z < 1 && ahead < 75;
       const alpha = ahead > 55 ? Math.max(0, 1 - (ahead - 55) / 20) : 1;
+      if (b.reward === 'heal') b.setPreview(this.healAmount(b.amount));
       b.placeLabel((v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h, vis, alpha);
     }
   }

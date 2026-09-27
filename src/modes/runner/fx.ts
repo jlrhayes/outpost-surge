@@ -1,6 +1,12 @@
 // OWNER: runner agent. Juice: pooled particles (additive sparks/flashes + lit puffs/debris), shockwave
 // rings, DOM floating text, screen flash and camera shake. No per-frame allocations.
 import * as THREE from 'three';
+import { glowParticleMat, puffMat, ringMat } from './mats';
+
+let geos: { ico: THREE.BufferGeometry; ring: THREE.BufferGeometry } | null = null;
+function fxGeos() {
+  return (geos ??= { ico: new THREE.IcosahedronGeometry(0.5, 0), ring: new THREE.RingGeometry(0.82, 1, 40) });
+}
 
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
@@ -139,23 +145,26 @@ class ParticlePool {
 }
 
 /** Expanding ground rings for explosions / gate passes. */
+const RING_CAP = 20;
+
 class RingPool {
   readonly mesh: THREE.InstancedMesh;
-  private x = new Float32Array(12);
-  private z = new Float32Array(12);
-  private t = new Float32Array(12);
-  private dur = new Float32Array(12);
-  private rad = new Float32Array(12);
-  private col = new Uint32Array(12);
+  private x = new Float32Array(RING_CAP);
+  private z = new Float32Array(RING_CAP);
+  private t = new Float32Array(RING_CAP);
+  private dur = new Float32Array(RING_CAP);
+  private rad = new Float32Array(RING_CAP);
+  private col = new Uint32Array(RING_CAP);
   private n = 0;
+  private next = 0;
   constructor(geo: THREE.BufferGeometry, mat: THREE.Material) {
-    this.mesh = new THREE.InstancedMesh(geo, mat, 12);
+    this.mesh = new THREE.InstancedMesh(geo, mat, RING_CAP);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
     this.mesh.setColorAt(0, tmpC.setRGB(1, 1, 1));
   }
   spawn(x: number, z: number, radius: number, color: number, dur = 0.45): void {
-    const i = this.n < 12 ? this.n++ : 0;
+    const i = this.n < RING_CAP ? this.n++ : (this.next = (this.next + 1) % RING_CAP);
     this.x[i] = x;
     this.z[i] = z;
     this.t[i] = 0;
@@ -209,8 +218,6 @@ export class Fx {
   private glow: ParticlePool;
   private puffs: ParticlePool;
   private rings: RingPool;
-  private geos: THREE.BufferGeometry[] = [];
-  private mats: THREE.Material[] = [];
   shake = 0;
   private texts: HTMLDivElement[] = [];
   private textIdx = 0;
@@ -223,17 +230,11 @@ export class Fx {
     quality: 'low' | 'high',
   ) {
     const hi = quality === 'high';
-    const glowGeo = new THREE.IcosahedronGeometry(0.5, 0);
-    const glowMat = new THREE.MeshBasicMaterial({ blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false });
-    this.glow = new ParticlePool(glowGeo, glowMat, hi ? 420 : 200, true);
-    const puffGeo = new THREE.IcosahedronGeometry(0.5, 0);
-    const puffMat = new THREE.MeshLambertMaterial({ flatShading: true });
-    this.puffs = new ParticlePool(puffGeo, puffMat, hi ? 360 : 180, false);
-    const ringGeo = new THREE.RingGeometry(0.82, 1, 40);
-    const ringMat = new THREE.MeshBasicMaterial({ blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
-    this.rings = new RingPool(ringGeo, ringMat);
-    this.geos.push(glowGeo, puffGeo, ringGeo);
-    this.mats.push(glowMat, puffMat, ringMat);
+    // Geometries and materials are cached for the app's lifetime (no shader recompiles on Retry).
+    const g = fxGeos();
+    this.glow = new ParticlePool(g.ico, glowParticleMat(), hi ? 420 : 200, true);
+    this.puffs = new ParticlePool(g.ico, puffMat(), hi ? 360 : 180, false);
+    this.rings = new RingPool(g.ring, ringMat());
     this.group.add(this.puffs.mesh, this.glow.mesh, this.rings.mesh);
     this.glow.mesh.renderOrder = 5;
     this.rings.mesh.renderOrder = 4;
@@ -373,8 +374,6 @@ export class Fx {
   }
 
   dispose(): void {
-    for (const g of this.geos) g.dispose();
-    for (const m of this.mats) m.dispose();
     this.glow.mesh.dispose();
     this.puffs.mesh.dispose();
     this.rings.mesh.dispose();

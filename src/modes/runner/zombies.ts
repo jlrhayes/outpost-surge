@@ -1,8 +1,10 @@
 // OWNER: runner agent. Zombie crowds: one InstancedMesh per variant, pooled records, hit flashes via
 // instance colours, rise-from-the-ground spawn, shuffle/lope animations, steering toward the squad.
+// Hordes are big (up to SIM.maxZombies alive) so everything here is allocation-free and O(n).
 import * as THREE from 'three';
 import { vcMaterial, zombieGeometry } from '../../three/models';
-import { SIM, type ZombieKind } from '../../data/runner';
+import { SIM, ZOMBIE_KINDS, type ZombieKind } from '../../data/runner';
+import { spitterGeometry } from './models';
 
 export interface Zombie {
   kind: ZombieKind;
@@ -17,15 +19,18 @@ export interface Zombie {
   flash: number;
   phase: number;
   rise: number;
+  /** Spitters: seconds until the next glob; `windup` animates the throw. */
+  spitCd: number;
+  windup: number;
   /** Index in the active list (for swap removal). */
   i: number;
 }
 
-const KINDS: ZombieKind[] = ['walker', 'runner', 'elite', 'brute'];
-const CAPS: Record<ZombieKind, number> = { walker: 200, runner: 90, elite: 40, brute: 24 };
-const RADIUS: Record<ZombieKind, number> = { walker: 0.42, runner: 0.4, elite: 0.55, brute: 0.85 };
-const SCALE: Record<ZombieKind, number> = { walker: 1, runner: 1, elite: 1.3, brute: 1 };
-const STEER: Record<ZombieKind, number> = { walker: 0.9, runner: 2.6, elite: 1.1, brute: 0.6 };
+const KINDS = ZOMBIE_KINDS;
+const CAPS: Record<ZombieKind, number> = { walker: 300, runner: 100, elite: 40, brute: 24, spitter: 24 };
+const RADIUS: Record<ZombieKind, number> = { walker: 0.4, runner: 0.4, elite: 0.55, brute: 0.85, spitter: 0.5 };
+const SCALE: Record<ZombieKind, number> = { walker: 1, runner: 1, elite: 1.3, brute: 1, spitter: 1.12 };
+const STEER: Record<ZombieKind, number> = { walker: 0.9, runner: 2.6, elite: 1.1, brute: 0.6, spitter: 0.5 };
 
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
@@ -39,11 +44,13 @@ export class Horde {
   readonly list: Zombie[] = [];
   private pool: Zombie[] = [];
   private meshes: Record<ZombieKind, THREE.InstancedMesh>;
-  private counts: Record<ZombieKind, number> = { walker: 0, runner: 0, elite: 0, brute: 0 };
+  private counts: Record<ZombieKind, number> = { walker: 0, runner: 0, elite: 0, brute: 0, spitter: 0 };
+  /** Live zombies per kind. */
+  readonly alive: Record<ZombieKind, number> = { walker: 0, runner: 0, elite: 0, brute: 0, spitter: 0 };
 
   constructor(castShadow: boolean) {
     const mk = (kind: ZombieKind) => {
-      const geo = zombieGeometry(kind === 'elite' ? 'walker' : kind);
+      const geo = kind === 'spitter' ? spitterGeometry() : zombieGeometry(kind === 'elite' ? 'walker' : kind);
       const m = new THREE.InstancedMesh(geo, vcMaterial(), CAPS[kind]);
       m.count = 0;
       m.frustumCulled = false;
@@ -52,8 +59,8 @@ export class Horde {
       this.group.add(m);
       return m;
     };
-    this.meshes = { walker: mk('walker'), runner: mk('runner'), elite: mk('elite'), brute: mk('brute') };
-    for (let i = 0; i < 300; i++) this.pool.push(blank());
+    this.meshes = { walker: mk('walker'), runner: mk('runner'), elite: mk('elite'), brute: mk('brute'), spitter: mk('spitter') };
+    for (let i = 0; i < SIM.maxZombies; i++) this.pool.push(blank());
   }
 
   get count(): number {
@@ -61,24 +68,25 @@ export class Horde {
   }
 
   spawn(kind: ZombieKind, x: number, d: number, hp: number, speed: number, contact: number): Zombie | null {
-    let active = 0;
-    for (const z of this.list) if (z.kind === kind) active++;
-    if (active >= CAPS[kind]) return null;
+    if (this.alive[kind] >= CAPS[kind] || this.list.length >= SIM.maxZombies) return null;
     const z = this.pool.pop() ?? blank();
     z.kind = kind;
     z.x = x;
     z.d = d;
     z.hp = hp;
     z.maxHp = hp;
-    z.speed = speed * (0.9 + Math.random() * 0.2);
+    z.speed = speed * (0.93 + Math.random() * 0.14);
     z.contact = contact;
     z.radius = RADIUS[kind];
     z.steer = STEER[kind];
     z.flash = 0;
     z.phase = Math.random() * 6.28;
-    z.rise = 0;
+    z.rise = -Math.random() * 0.25;
+    z.spitCd = 0.35 + Math.random() * 0.9;
+    z.windup = 0;
     z.i = this.list.length;
     this.list.push(z);
+    this.alive[kind]++;
     return z;
   }
 
@@ -89,29 +97,32 @@ export class Horde {
       this.list[i] = last;
       last.i = i;
     }
+    this.alive[z.kind]--;
     this.pool.push(z);
   }
 
   clear(): void {
     while (this.list.length) this.pool.push(this.list.pop()!);
-    for (const k of KINDS) this.meshes[k].count = 0;
+    for (const k of KINDS) {
+      this.meshes[k].count = 0;
+      this.alive[k] = 0;
+    }
   }
 
   /** Nearest zombie hit by a bullet travelling from d0 to d1 at lane x (or null). */
   bulletHit(x: number, d0: number, d1: number): Zombie | null {
     let best: Zombie | null = null;
     let bestD = Infinity;
-    for (let i = 0; i < this.list.length; i++) {
-      const z = this.list[i];
+    const list = this.list;
+    for (let i = 0; i < list.length; i++) {
+      const z = list[i];
       if (z.rise < 0.35) continue;
       const r = z.radius;
-      if (z.d < d0 - r || z.d > d1 + r) continue;
+      if (z.d < d0 - r || z.d > d1 + r || z.d >= bestD) continue;
       const dx = z.x - x;
       if (dx > r + 0.1 || dx < -r - 0.1) continue;
-      if (z.d < bestD) {
-        bestD = z.d;
-        best = z;
-      }
+      bestD = z.d;
+      best = z;
     }
     return best;
   }
@@ -123,8 +134,11 @@ export class Horde {
       const z = this.list[i];
       if (z.rise < 1) z.rise = Math.min(1, z.rise + dt * 2.2);
       if (z.flash > 0) z.flash = Math.max(0, z.flash - dt);
+      if (z.windup > 0) z.windup = Math.max(0, z.windup - dt * 2.5);
       const ahead = z.d - squadD;
-      if (z.rise > 0.5) z.d -= z.speed * dt;
+      // Spitters plant themselves while lobbing acid.
+      const walk = z.kind === 'spitter' && ahead < SIM.spitRange && ahead > 7 ? 0.25 : 1;
+      if (z.rise > 0.5) z.d -= z.speed * walk * dt;
       if (ahead < 30) {
         const dx = squadX - z.x;
         const m = z.steer * dt * (ahead < 10 ? 1.6 : 1);
@@ -155,8 +169,9 @@ export class Horde {
       const bob = Math.abs(s) * (run ? 0.12 : brute ? 0.1 : 0.06);
       const roll = s * (run ? 0.06 : brute ? 0.1 : 0.14);
       // The models are already posed (hunched walker, leaning sprinter): only a little extra sway.
-      const pitch = run ? 0.08 : brute ? 0.04 : 0.05 + Math.sin(t * 2 + z.phase) * 0.05;
-      const riseY = (1 - z.rise) * -1.4;
+      let pitch = run ? 0.08 : brute ? 0.04 : 0.05 + Math.sin(t * 2 + z.phase) * 0.05;
+      if (z.windup > 0) pitch -= Math.sin(z.windup * Math.PI) * 0.55;
+      const riseY = (1 - Math.max(0, z.rise)) * -1.4;
       tmpE.set(pitch, Math.sin(t * 0.7 + z.phase) * 0.15, roll);
       tmpQ.setFromEuler(tmpE);
       tmpV.set(z.x, bob + riseY, -z.d);
@@ -182,5 +197,5 @@ export class Horde {
 }
 
 function blank(): Zombie {
-  return { kind: 'walker', x: 0, d: 0, hp: 1, maxHp: 1, speed: 1, contact: 1, radius: 0.4, steer: 1, flash: 0, phase: 0, rise: 1, i: 0 };
+  return { kind: 'walker', x: 0, d: 0, hp: 1, maxHp: 1, speed: 1, contact: 1, radius: 0.4, steer: 1, flash: 0, phase: 0, rise: 1, spitCd: 1, windup: 0, i: 0 };
 }

@@ -945,3 +945,58 @@
   min-width: 200px;
   font-size: 18px !important;
 }
+
+/* ---------- Reinforcement crate label, hazard threat, replay passes ---------- */
+.rn-barrel-heal {
+  border-color: #3fe0bf;
+  background: rgba(6, 40, 34, 0.85);
+}
+.rn-barrel-heal .rn-barrel-ic i {
+  color: #7dffe0;
+}
+.rn-threat.hazard {
+  background: rgba(150, 110, 0, 0.45);
+}
+.rn-passes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 13px;
+  font-weight: 800;
+}
+.rn-passes-label {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+}
+.rn-passes-pips {
+  display: inline-flex;
+  gap: 3px;
+}
+.rn-passes-pips i {
+  width: 10px;
+  height: 14px;
+  border-radius: 3px;
+  background: #2a3a4c;
+  border: 1px solid #0e1822;
+}
+.rn-passes-pips i.on {
+  background: linear-gradient(#ffe27a, #ffb21e);
+  border-color: #8a5a00;
+}
+.rn-passes-next {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.rn-practice {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 6px 4px;
+}

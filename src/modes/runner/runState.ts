@@ -2,6 +2,7 @@
 // The mode throttles high-frequency values (progress, boss HP) so the HUD re-renders ~10x/s at most.
 import { signal } from '@preact/signals';
 import type { RunOutcome } from './progress';
+import type { WeaponKind } from '../../data/runner';
 
 export interface BossHud {
   name: string;
@@ -15,6 +16,9 @@ export interface WeaponHud {
   dmg: number;
   multi: number;
   helpers: number;
+  /** Current gun (weapon gates swap it) and its level. */
+  gun: WeaponKind;
+  gunLv: number;
 }
 
 export const runHud = {
@@ -27,7 +31,7 @@ export const runHud = {
   paused: signal(false),
   boss: signal<BossHud | null>(null),
   /** Weapon upgrade levels (shown as chips). */
-  weapon: signal<WeaponHud>({ rate: 1, dmg: 1, multi: 0, helpers: 0 }),
+  weapon: signal<WeaponHud>({ rate: 1, dmg: 1, multi: 0, helpers: 0, gun: 'rifle', gunLv: 1 }),
   caption: signal<{ text: string; key: number } | null>(null),
   banner: signal<{ text: string; kind: 'info' | 'boss' | 'good' | 'bad'; key: number } | null>(null),
   dragHint: signal(false),

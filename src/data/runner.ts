@@ -31,7 +31,41 @@ export const SIM = {
   waveWake: 62,
   /** Distance the boss spawns ahead of the squad. */
   bossSpawn: 36,
+  /** Most zombies alive at once (instancing / perf budget). */
+  maxZombies: 320,
+  /** Spitters start lobbing acid when the squad is this close. */
+  spitRange: 27,
+  /** Seconds an acid glob is in the air (the landing circle is shown for this long). */
+  spitFlight: 1.15,
+  /** Radius of an acid splash. */
+  spitSplash: 1.45,
 };
+
+/** Guns a weapon gate can hand out. `rate` scales volleys/s, `dmg` the squad's total damage output. */
+export type WeaponKind = 'rifle' | 'spread' | 'cannon';
+
+export interface WeaponSpec {
+  name: string;
+  /** Volleys per second multiplier (fewer, heavier shots also means fewer gate hits). */
+  rate: number;
+  /** Projectiles per volley (fanned out). */
+  pellets: number;
+  /** Total damage multiplier when everything connects. */
+  dmg: number;
+  /** Range multiplier. */
+  range: number;
+  /** Splash radius on impact (0 = none; splash shells don't pierce). */
+  splash: number;
+}
+
+export const WEAPONS: Record<WeaponKind, WeaponSpec> = {
+  rifle: { name: 'RIFLE', rate: 1, pellets: 1, dmg: 1, range: 1, splash: 0 },
+  spread: { name: 'SPREAD GUN', rate: 0.6, pellets: 3, dmg: 1.2, range: 0.74, splash: 0 },
+  cannon: { name: 'CANNON', rate: 0.34, pellets: 1, dmg: 1.15, range: 1.05, splash: 1.5 },
+};
+/** Weapon damage multiplier by weapon level (index 1..3). */
+export const WEAPON_LEVEL_MULT = [1, 1, 1.22, 1.5];
+export const WEAPON_MAX_LEVEL = 3;
 
 export type RunnerTheme = 'outskirts' | 'docks' | 'highway' | 'mall' | 'frost' | 'core';
 
@@ -80,8 +114,10 @@ export const CHAPTERS: ChapterDef[] = [
 
 const BOSS_NAMES = ['Stomper', 'Mauler', 'Crusher', 'Slammer', 'Wrecker', 'Gnasher', 'Lurcher', 'Bonegrinder'];
 
-export type ZombieKind = 'walker' | 'runner' | 'elite' | 'brute';
-export type GateKind = 'add' | 'mul' | 'rate' | 'dmg';
+export type ZombieKind = 'walker' | 'runner' | 'elite' | 'brute' | 'spitter';
+export const ZOMBIE_KINDS: ZombieKind[] = ['walker', 'runner', 'elite', 'brute', 'spitter'];
+/** add: +/-N soldiers. mul: xN / ÷N. rate/dmg: +/-% weapon stat. gun: weapon swap (value = weapon level). */
+export type GateKind = 'add' | 'mul' | 'rate' | 'dmg' | 'gun';
 
 export interface GateDef {
   /** Distance along the road. */
@@ -89,13 +125,37 @@ export interface GateDef {
   /** -1 = left half of the road, +1 = right half. */
   side: -1 | 1;
   kind: GateKind;
-  /** add: signed soldiers. mul: factor (negative = divide, see MUL_LADDER). rate/dmg: signed percent. */
+  /** add: signed soldiers. mul: factor (negative = divide, see MUL_LADDER). rate/dmg: signed percent. gun: level 1..3. */
   value: number;
   /** Bullet hits needed to raise the value one step (add gates: 1). */
   step: number;
+  /** gun gates: the weapon it hands out. */
+  weapon?: WeaponKind;
 }
 
-export type BarrelReward = 'soldiers' | 'rate' | 'dmg' | 'multi' | 'tank' | 'rocket' | 'explosive';
+/** heal = "reinforcements": brings back part of the soldiers lost earlier in the level. */
+export type BarrelReward = 'soldiers' | 'rate' | 'dmg' | 'multi' | 'tank' | 'rocket' | 'explosive' | 'heal';
+
+/**
+ * Lane hazards. spikes: a fixed spike strip over part of the road. wire: a barbed-wire barricade that
+ * sweeps from side to side on a rail. Soldiers caught in them when the squad crosses are lost.
+ */
+export type HazardKind = 'spikes' | 'wire';
+
+export interface HazardDef {
+  d: number;
+  kind: HazardKind;
+  /** spikes: centre of the strip. wire: centre of the sweep. */
+  x: number;
+  /** Half-width of the dangerous part. */
+  half: number;
+  /** wire: sweep amplitude (units) and period (s). */
+  amp: number;
+  period: number;
+  phase: number;
+  /** Share of the soldiers standing in it that are lost. */
+  bite: number;
+}
 
 export interface BarrelDef {
   d: number;
@@ -161,6 +221,9 @@ export interface LevelDef {
   gates: GateDef[];
   barrels: BarrelDef[];
   waves: WaveDef[];
+  hazards: HazardDef[];
+  /** Spitter acid: seconds between globs per spitter, and the most of the squad one glob can melt (0..1). */
+  spit: { every: number; maxShare: number };
   boss: BossDef;
   captions: CaptionDef[];
   /** Kinds of zombies that appear (for the level preview). */
@@ -220,6 +283,9 @@ const TUNE: ChapterTune[] = [
   { speed: 10.0, start: 15, alpha0: 1.1, alpha1: 1.3, bossSec: 7.5, red: 0.8, peak: 900 },
 ];
 
+/** First level each mechanic can show up in (the level select and captions use these too). */
+export const INTRO_LEVEL = { runner: 3, brute: 5, heal: 4, gun: 6, elite: 10, spitter: 9, hazard: 9, hazard2: 25 };
+
 /** Tracks what a decent player's squad looks like at each point of the road. */
 class Expect {
   count: number;
@@ -246,9 +312,55 @@ class Expect {
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
+let CAMPAIGN: LevelDef[] | null = null;
+let INTRO: LevelDef | null = null;
+
+/** Level definition (cached; treat as read-only). */
 export function levelDef(level: number, intro = false): LevelDef {
-  if (intro) return introLevel();
+  if (intro) return (INTRO ??= introLevel());
   level = clamp(Math.floor(level) || 1, 1, LEVEL_COUNT);
+  return campaign()[level - 1];
+}
+
+/**
+ * All 48 levels. Generated once, then smoothed across neighbours so no level's boss or expected squad
+ * jumps more than 1.5x past the levels around it, and tutorial captions are attached to the first real
+ * occurrence of each mechanic.
+ */
+function campaign(): LevelDef[] {
+  if (CAMPAIGN) return CAMPAIGN;
+  const defs: LevelDef[] = [];
+  for (let l = 1; l <= LEVEL_COUNT; l++) defs.push(rawLevel(l));
+  const exp = clampNeighbours(defs.map((d) => d.expected), 1.5);
+  const boss0 = defs.map((d, i) => d.boss.hp * Math.min(1, exp[i] / Math.max(1, d.expected)));
+  const boss = clampNeighbours(boss0, 1.5);
+  defs.forEach((d, i) => {
+    d.expected = Math.round(exp[i]);
+    d.boss.hp = niceNum(boss[i]);
+  });
+  addCaptions(defs);
+  CAMPAIGN = defs;
+  return defs;
+}
+
+/** Lowers any value above `ratio` x its smaller neighbour (repeats until stable). */
+export function clampNeighbours(vals: number[], ratio: number): number[] {
+  const s = vals.slice();
+  for (let it = 0; it < 12; it++) {
+    let changed = false;
+    for (let i = 0; i < s.length; i++) {
+      const lo = Math.min(i > 0 ? s[i - 1] : Infinity, i < s.length - 1 ? s[i + 1] : Infinity);
+      if (s[i] > lo * ratio + 1e-6) {
+        s[i] = lo * ratio;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return s;
+}
+
+function rawLevel(level: number): LevelDef {
   const chapter = chapterOf(level);
   const index = levelInChapter(level);
   const tune = TUNE[chapter - 1];
@@ -268,9 +380,14 @@ export function levelDef(level: number, intro = false): LevelDef {
   const nGates = clamp(Math.round(6 + t * 3 + r(-0.4, 1.2)), 6, 10);
   const nWaves = clamp(Math.round(4 + t * 3.4 + r(-0.4, 0.6)), 4, 8);
   const nBarrels = clamp(3 + ri(0, 2), 3, 5);
-  const allowRunner = level >= 3;
-  const allowBrute = level >= 5;
-  const allowElite = level >= 10;
+  const opt = {
+    allowRunner: level >= INTRO_LEVEL.runner,
+    allowBrute: level >= INTRO_LEVEL.brute,
+    allowElite: level >= INTRO_LEVEL.elite,
+    allowSpitter: level >= INTRO_LEVEL.spitter,
+    final: false,
+  };
+  const nHazards = level >= INTRO_LEVEL.hazard2 ? 2 : level >= INTRO_LEVEL.hazard ? 1 : 0;
 
   // Distribute waves & barrels over the gate segments.
   const waveSeg: number[] = new Array(nGates + 1).fill(0);
@@ -293,12 +410,20 @@ export function levelDef(level: number, intro = false): LevelDef {
     barrelSeg[i]++;
     barrelsLeft--;
   }
+  // Hazards: one in each half of the road (never in the opening segment).
+  const hazardSeg = new Set<number>();
+  if (nHazards >= 1) hazardSeg.add(ri(1, Math.max(1, Math.floor(nGates / 2))));
+  if (nHazards >= 2) hazardSeg.add(ri(Math.floor(nGates / 2) + 1, nGates - 1));
+  // A reinforcement (heal) crate somewhere in the second half, once the squad has taken some hits.
+  const healSeg = level >= INTRO_LEVEL.heal && (level === INTRO_LEVEL.heal || rng() < 0.8) ? ri(Math.ceil(nGates / 2), nGates - 1) : -1;
 
   const gates: GateDef[] = [];
   const barrels: BarrelDef[] = [];
   const waves: WaveDef[] = [];
+  const hazards: HazardDef[] = [];
   let helperGiven = level < 2;
   let weaponGates = 0;
+  let gunGiven = level < INTRO_LEVEL.gun;
   let explosivesLeft = level < 5 ? 1 : 2;
 
   const start = tune.start + Math.floor(k * 2);
@@ -309,19 +434,31 @@ export function levelDef(level: number, intro = false): LevelDef {
     // Wave positions for this segment (zombies wake ~62 units ahead and walk toward the squad).
     const waveDs: number[] = [];
     for (let w = 0; w < waveSeg[seg]; w++) waveDs.push(d0 + len * (waveSeg[seg] > 1 ? 0.35 + 0.45 * w : 0.55) + 6);
+    const hz = hazardSeg.has(seg);
+    if (hz) {
+      const hd = d0 + len * 0.2;
+      const wire = rng() < 0.5;
+      if (wire) hazards.push({ d: hd, kind: 'wire', x: 0, half: 1.7, amp: 2.3, period: r(3.0, 3.8), phase: r(0, 6.28), bite: 0.45 });
+      else {
+        const side = rng() < 0.5 ? -1 : 1;
+        hazards.push({ d: hd, kind: 'spikes', x: side * 2.15, half: 1.85, amp: 0, period: 1, phase: 0, bite: 0.45 });
+      }
+      exp.count *= 0.96;
+    }
     // Barrels early in the segment so there's time to shoot them.
-    for (let b = 0; b < barrelSeg[seg]; b++) {
-      let bd = d0 + len * (0.22 + 0.3 * b);
+    const nb = barrelSeg[seg] + (seg === healSeg ? 1 : 0);
+    for (let b = 0; b < nb; b++) {
+      let bd = d0 + len * ((hz ? 0.36 : 0.22) + 0.3 * b);
       let reward: BarrelReward;
       if (seg === 0) reward = 'soldiers';
+      else if (seg === healSeg && b === nb - 1) reward = 'heal';
       else if (!helperGiven && rng() < 0.45) {
         reward = rng() < 0.5 ? 'tank' : 'rocket';
         helperGiven = true;
       } else if (waveDs.length > 0 && explosivesLeft > 0 && rng() < 0.35) {
         reward = 'explosive';
         explosivesLeft--;
-      }
-      else
+      } else
         reward = pickW(rng, [
           ['soldiers', 3],
           ['rate', 1.2],
@@ -330,52 +467,52 @@ export function levelDef(level: number, intro = false): LevelDef {
         ]) as BarrelReward;
       // Explosive drums sit in a wave's front line: shoot them as the horde walks past.
       if (reward === 'explosive') bd = waveDs[0] - 1.5;
-      const hpSec = reward === 'explosive' ? 0.2 : reward === 'tank' || reward === 'rocket' ? r(1.2, 1.6) : r(0.7, 1.3);
+      const hpSec = reward === 'explosive' ? 0.2 : reward === 'tank' || reward === 'rocket' ? r(1.2, 1.6) : reward === 'heal' ? r(0.8, 1.1) : r(0.7, 1.3);
       const hp = niceNum(Math.max(6, exp.dps() * hpSec));
       let amount = 0;
       if (reward === 'soldiers') amount = Math.round(peak * r(0.06, 0.12)) + 3;
       else if (reward === 'rate') amount = 25;
       else if (reward === 'dmg') amount = 35;
       else if (reward === 'multi') amount = 1;
+      else if (reward === 'heal') amount = 60; // % of the soldiers lost so far
       const x = reward === 'explosive' ? r(-1.5, 1.5) : pick(rng, [-2, 2, -2, 2, 0]);
-      barrels.push({ d: bd, x, hp, reward, amount, roll: reward !== 'explosive' && t > 0.15 && rng() < 0.3 });
+      barrels.push({ d: bd, x, hp, reward, amount, roll: reward !== 'explosive' && reward !== 'heal' && t > 0.15 && rng() < 0.3 });
       // Expected effect of picking it up.
       if (reward === 'soldiers') exp.count += amount * 0.85;
       else if (reward === 'rate') exp.rate *= 1.2;
       else if (reward === 'dmg') exp.dmg *= 1.3;
       else if (reward === 'multi') exp.multi = Math.min(SIM.maxMulti, exp.multi + 1);
       else if (reward === 'tank' || reward === 'rocket') exp.dmg *= 1.15;
+      else if (reward === 'heal') exp.count *= 1.05;
     }
     for (const wd of waveDs) {
-      const wave = makeWave(rng, wd, exp, alpha, level, { allowRunner, allowBrute, allowElite, final: seg === nGates });
+      opt.final = seg === nGates;
+      const wave = makeWave(rng, wd, exp, alpha, level, opt);
       waves.push(wave);
       // Explosive drums next to this wave get a blast worth several walkers.
-      for (const b of barrels) if (b.reward === 'explosive' && b.amount === 0) b.amount = Math.round(wave.hp.walker * 8 + 6);
-      exp.count *= 1 - 0.1 * alpha;
+      for (const b of barrels) if (b.reward === 'explosive' && b.amount === 0) b.amount = Math.round(wave.hp.walker * 24 + 6);
+      exp.count *= 1 - 0.1 * alpha - (wave.spawns.some((s) => s.kind === 'spitter') ? 0.03 : 0);
     }
     d = d0 + len;
     if (seg < nGates) {
       const target = start + (peak - start) * Math.pow((seg + 1) / nGates, 1.15);
-      const pair = makeGatePair(rng, d, exp, tune.red, t, seg, weaponGates < 2, target);
+      const pair = makeGatePair(rng, d, exp, tune.red, t, seg, weaponGates < 2, !gunGiven, target);
       if (pair.some((g) => g.kind === 'rate' || g.kind === 'dmg')) weaponGates++;
+      if (pair.some((g) => g.kind === 'gun')) {
+        gunGiven = true;
+        exp.dmg *= 1.12;
+      }
       gates.push(...pair);
       exp.count = Math.max(exp.count + 1, expectedAfter(pair, exp));
     }
   }
   const length = d;
 
-  const threats: ZombieKind[] = ['walker'];
-  if (waves.some((w) => w.spawns.some((s) => s.kind === 'runner'))) threats.push('runner');
-  if (waves.some((w) => w.spawns.some((s) => s.kind === 'elite'))) threats.push('elite');
-  if (waves.some((w) => w.spawns.some((s) => s.kind === 'brute'))) threats.push('brute');
+  const threats: ZombieKind[] = [];
+  for (const kind of ZOMBIE_KINDS) if (waves.some((w) => w.spawns.some((s) => s.kind === kind))) threats.push(kind);
 
   const bossHp = niceNum(exp.dps() * tune.bossSec * (boss ? 1.4 : 1) * (0.9 + 0.2 * k));
   const walkerHp = waves[waves.length - 1].hp.walker;
-  const captions: CaptionDef[] = [];
-  if (level === 1) captions.push({ d: 14, text: 'Shoot red gates to raise their numbers!', dur: 3.5 });
-  if (level === 3) captions.push({ d: 14, text: 'Sprinters incoming: shoot the fast ones first!', dur: 3.5 });
-  if (level === 5) captions.push({ d: 14, text: 'Brutes crush several soldiers at once. Focus fire!', dur: 3.5 });
-  if (level === 10) captions.push({ d: 14, text: 'Elite zombies take a beating. Keep your squad big!', dur: 3.5 });
 
   return {
     level,
@@ -392,11 +529,14 @@ export function levelDef(level: number, intro = false): LevelDef {
       runner: 2 + Math.floor(t * 3),
       elite: Math.max(3, Math.round(exp.count * 0.025)),
       brute: Math.max(6, Math.round(exp.count * 0.07)),
+      spitter: 2,
     },
-    zspeed: { walker: 1.5 + t * 0.6, runner: 5.2 + t * 1.5, elite: 1.7 + t * 0.5, brute: 1.15 + t * 0.3 },
+    zspeed: { walker: 1.5 + t * 0.6, runner: 5.2 + t * 1.5, elite: 1.7 + t * 0.5, brute: 1.15 + t * 0.3, spitter: 1.1 + t * 0.4 },
     gates,
     barrels,
     waves,
+    hazards,
+    spit: { every: 2.5 - t * 0.6, maxShare: 0.1 + t * 0.04 },
     boss: {
       name: boss ? ch.bossName : pick(rng, BOSS_NAMES),
       hp: bossHp,
@@ -405,12 +545,58 @@ export function levelDef(level: number, intro = false): LevelDef {
       scale: boss ? 1.35 : 1,
       big: boss,
       minionEvery: boss ? 3.4 : t > 0.45 ? 6 : 0,
-      minionHp: Math.max(1, Math.round(walkerHp * 0.7)),
+      minionHp: Math.max(1, Math.round(walkerHp * 2)),
     },
-    captions,
+    captions: [],
     threats,
     expected: Math.round(exp.count),
   };
+}
+
+/** Tutorial captions, timed to the first real occurrence of each mechanic in the campaign. */
+function addCaptions(defs: LevelDef[]): void {
+  const firstLevel = (test: (d: LevelDef) => boolean) => defs.find(test)?.level ?? -1;
+  const add = (lv: number, d: number, text: string, dur = 3.5) => {
+    if (lv < 1) return;
+    defs[lv - 1].captions.push({ d: Math.max(6, d), text, dur });
+  };
+  // Where a wave's zombies first rise out of the ground.
+  const waveAppears = (def: LevelDef, kind: ZombieKind) => {
+    const w = def.waves.find((w) => w.spawns.some((s) => s.kind === kind));
+    return w ? w.d - SIM.waveWake + 2 : -1;
+  };
+  {
+    const l1 = defs[0];
+    const red = l1.gates.find((g) => !gateIsGood(g.kind, g.value));
+    if (red) add(1, red.d - 40, 'Shoot red gates to raise their numbers!');
+  }
+  for (const [kind, text] of [
+    ['runner', 'Sprinters incoming: shoot the fast ones first!'],
+    ['brute', 'Brutes crush several soldiers at once. Focus fire!'],
+    ['spitter', 'Spitters lob acid: steer out of the green circles!'],
+    ['elite', 'Elite zombies take a beating. Keep your squad big!'],
+  ] as [ZombieKind, string][]) {
+    const lv = firstLevel((d) => d.threats.includes(kind));
+    if (lv > 0) add(lv, waveAppears(defs[lv - 1], kind), text);
+  }
+  const heal = firstLevel((d) => d.barrels.some((b) => b.reward === 'heal'));
+  if (heal > 0) add(heal, defs[heal - 1].barrels.find((b) => b.reward === 'heal')!.d - 34, 'Reinforcement crate: break it to bring back fallen soldiers!');
+  const gun = firstLevel((d) => d.gates.some((g) => g.kind === 'gun'));
+  if (gun > 0) add(gun, defs[gun - 1].gates.find((g) => g.kind === 'gun')!.d - 40, 'Weapon gates swap your gun. Shoot them to level it up!', 4);
+  for (const kind of ['spikes', 'wire'] as HazardKind[]) {
+    const lv = firstLevel((d) => d.hazards.some((h) => h.kind === kind));
+    if (lv > 0)
+      add(lv, defs[lv - 1].hazards.find((h) => h.kind === kind)!.d - 38, kind === 'spikes' ? 'Spike strip ahead: steer around it!' : 'Barbed wire sweeps the road: time your pass!');
+  }
+  // Keep captions in road order and far enough apart to be read.
+  for (const def of defs) {
+    def.captions.sort((a, b) => a.d - b.d);
+    for (let i = 1; i < def.captions.length; i++) {
+      const prev = def.captions[i - 1];
+      const minD = prev.d + prev.dur * def.speed;
+      if (def.captions[i].d < minD) def.captions[i].d = minD;
+    }
+  }
 }
 
 /** Squad after a gate pair for a player who picks well and pours most of their fire into their gate. */
@@ -431,7 +617,7 @@ function expectedAfter(pair: GateDef[], exp: Expect): number {
  * option is sized so that (value + the hits they pour into it) lands near it. Multipliers only show up
  * when the squad is well behind the curve, so growth stays readable instead of exploding.
  */
-function makeGatePair(rng: () => number, d: number, exp: Expect, red: number, t: number, i: number, allowWeapon: boolean, target: number): GateDef[] {
+function makeGatePair(rng: () => number, d: number, exp: Expect, red: number, t: number, i: number, allowWeapon: boolean, allowGun: boolean, target: number): GateDef[] {
   const r = (a: number, b: number) => a + (b - a) * rng();
   const E = exp.count;
   const H = exp.gateHits();
@@ -454,6 +640,7 @@ function makeGatePair(rng: () => number, d: number, exp: Expect, red: number, t:
           ['mulDiv', behind && i >= 2 ? 0.3 + t * 0.4 : 0],
           ['divSub', ahead && t > 0.25 ? 0.5 : 0],
           ['weapon', allowWeapon ? 0.45 : 0],
+          ['gun', allowGun && i >= 1 ? 0.9 : 0],
           ['trap', i >= 2 ? t * 0.5 + (ahead ? 0.5 : 0) : 0],
         ]);
   let a: Omit<GateDef, 'd' | 'side'>;
@@ -487,6 +674,11 @@ function makeGatePair(rng: () => number, d: number, exp: Expect, red: number, t:
       b = add(good(r(0.7, 1)));
       break;
     }
+    case 'gun':
+      // New gun vs soldiers: every `step` hits levels the gun up (Lv 1..3).
+      a = { kind: 'gun', weapon: rng() < 0.5 ? 'spread' : 'cannon', value: 1, step: Math.max(10, Math.round(H * 0.42)) };
+      b = add(good(r(0.75, 1)));
+      break;
     case 'trap':
       a = add(-(E * r(0.6, 0.9) + H * 1.1 + 5));
       b = add(good(r(0.8, 1)));
@@ -502,81 +694,140 @@ function makeGatePair(rng: () => number, d: number, exp: Expect, red: number, t:
   ];
 }
 
+/**
+ * A horde. Waves are big, dense blocks of weak zombies that fill the road (bullets pierce through the
+ * damage they overkill, so kill speed still tracks squad DPS), with sprinters, elites, brutes and
+ * spitters mixed in as the campaign goes on.
+ */
 function makeWave(
   rng: () => number,
   d: number,
   exp: Expect,
   alpha: number,
   level: number,
-  opt: { allowRunner: boolean; allowBrute: boolean; allowElite: boolean; final: boolean },
+  opt: { allowRunner: boolean; allowBrute: boolean; allowElite: boolean; allowSpitter: boolean; final: boolean },
 ): WaveDef {
   const r = (a: number, b: number) => a + (b - a) * rng();
   const budget = exp.dps() * 2.7 * alpha * (opt.final ? 1.25 : 1);
-  // Aim for ~18-30 walker-equivalents per wave; walker HP absorbs the rest.
-  const target = 16 + Math.min(14, level * 0.5);
+  // Aim for ~45-100 walker-equivalents per wave; walker HP absorbs the rest.
+  const target = 42 + Math.min(58, level * 1.5);
   const walker = Math.max(1, Math.round(budget / target));
   const hp: Record<ZombieKind, number> = {
     walker,
     runner: Math.max(1, Math.round(walker * 0.6)),
-    elite: Math.max(4, Math.round(walker * 4)),
-    brute: Math.max(8, Math.round(walker * 11)),
+    elite: Math.max(5, Math.round(walker * 10)),
+    brute: Math.max(14, Math.round(walker * 30)),
+    spitter: Math.max(3, Math.round(walker * 4)),
   };
   let units = budget / walker; // walker-equivalents
   const spawns: SpawnDef[] = [];
   // Brutes lead from the back-centre.
   if (opt.allowBrute && rng() < 0.55 + (opt.final ? 0.3 : 0)) {
-    const n = Math.min(3, Math.max(1, Math.floor(units / 30)));
-    for (let i = 0; i < n; i++) spawns.push({ kind: 'brute', x: (i - (n - 1) / 2) * 2.2, dd: 5 + r(0, 1.5) });
-    units -= n * 11;
+    const n = Math.min(3, Math.max(1, Math.floor(units / 90)));
+    for (let i = 0; i < n; i++) spawns.push({ kind: 'brute', x: (i - (n - 1) / 2) * 2.4, dd: 7 + r(0, 1.5) });
+    units -= (n * hp.brute) / walker;
   }
   if (opt.allowElite && rng() < 0.6) {
-    const n = Math.min(4, Math.max(1, Math.floor(units / 20)));
-    for (let i = 0; i < n; i++) spawns.push({ kind: 'elite', x: r(-2.8, 2.8), dd: r(2, 4) });
-    units -= n * 4;
+    const n = Math.min(5, Math.max(1, Math.floor(units / 50)));
+    for (let i = 0; i < n; i++) spawns.push({ kind: 'elite', x: r(-3, 3), dd: r(3, 6) });
+    units -= (n * hp.elite) / walker;
+  }
+  // Spitters hang at the back of the horde and lob acid over it.
+  if (opt.allowSpitter && rng() < 0.42 + (opt.final ? 0.2 : 0) + Math.min(0.2, (level - 9) * 0.01)) {
+    const n = clamp(1 + Math.floor(units / 80) + (level >= 30 ? 1 : 0), 1, 3);
+    for (let i = 0; i < n; i++) spawns.push({ kind: 'spitter', x: clamp((i - (n - 1) / 2) * 2.6 + r(-0.6, 0.6), -3.3, 3.3), dd: 11 + r(0, 2.5) });
+    units -= (n * hp.spitter) / walker;
   }
   if (opt.allowRunner && rng() < 0.6) {
-    const n = clamp(Math.round(units * r(0.15, 0.3) / 0.6), 3, 10);
+    const n = clamp(Math.round((units * r(0.12, 0.25)) / 0.6), 4, 18);
     const cx = r(-2, 2);
     for (let i = 0; i < n; i++) {
-      const row = Math.floor(i / 3);
-      spawns.push({ kind: 'runner', x: clamp(cx + ((i % 3) - 1) * 0.9, -3.6, 3.6), dd: 10 + row * 1.2 });
+      const row = Math.floor(i / 4);
+      spawns.push({ kind: 'runner', x: clamp(cx + ((i % 4) - 1.5) * 0.7, -3.6, 3.6), dd: 14 + row * 0.9 });
     }
     units -= n * 0.6;
   }
-  const n = clamp(Math.round(units), 4, 42);
-  const shape = pick(rng, ['block', 'block', 'column', 'wedge', 'scatter'] as const);
+  const n = clamp(Math.round(units), 6, 130);
+  const shape = pick(rng, ['block', 'block', 'block', 'twin', 'wedge', 'wall'] as const);
+  const W = 7.2;
+  const jit = () => r(-0.12, 0.12);
   for (let i = 0; i < n; i++) {
     let x = 0;
     let dd = 0;
     if (shape === 'block') {
-      const cols = n > 20 ? 7 : 5;
-      x = ((i % cols) - (cols - 1) / 2) * (6.8 / cols) + r(-0.15, 0.15);
-      dd = Math.floor(i / cols) * 1.1;
-    } else if (shape === 'column') {
-      const cx = rng() < 0.5 ? -2 : 2;
-      x = cx + ((i % 3) - 1) * 0.85 + r(-0.1, 0.1);
-      dd = Math.floor(i / 3) * 0.95;
+      // Shoulder-to-shoulder block across the whole road.
+      const cols = clamp(Math.round(Math.sqrt(n * 1.8)), 7, 10);
+      const row = Math.floor(i / cols);
+      x = ((i % cols) - (cols - 1) / 2) * (W / cols) + (row % 2 ? W / cols / 2 : 0) + jit();
+      dd = row * 0.78 + jit();
+    } else if (shape === 'twin') {
+      // Two columns, one per lane.
+      const side = i % 2 ? 1 : -1;
+      const j = Math.floor(i / 2);
+      const row = Math.floor(j / 4);
+      x = side * 2.05 + ((j % 4) - 1.5) * 0.82 + jit();
+      dd = row * 0.8 + jit();
     } else if (shape === 'wedge') {
+      // Arrowhead pointing at the squad, widening to the full road.
       const row = Math.floor(Math.sqrt(i));
       const inRow = i - row * row;
-      x = clamp((inRow - row) * 0.55, -3.6, 3.6);
-      dd = row * 1.1;
+      const span = Math.min(row, 4.5);
+      x = row > 0 ? (inRow / (2 * row) - 0.5) * 2 * span * 0.8 + jit() : 0;
+      dd = row * 0.75 + jit();
     } else {
-      x = r(-3.5, 3.5);
-      dd = r(0, 9);
+      // A long wall several ranks deep.
+      const row = Math.floor(i / 10);
+      x = ((i % 10) - 4.5) * 0.74 + (row % 2 ? 0.37 : 0) + jit();
+      dd = row * 0.62 + jit();
     }
-    spawns.push({ kind: 'walker', x, dd });
+    spawns.push({ kind: 'walker', x: clamp(x, -3.65, 3.65), dd: Math.max(0, dd) });
   }
   return { d, hp, spawns };
 }
 
 function introLevel(): LevelDef {
   const W = (kind: ZombieKind, x: number, dd: number): SpawnDef => ({ kind, x, dd });
-  const block = (n: number, cols: number, x0 = 0, spread = 6.4): SpawnDef[] => {
+  const block = (n: number, cols: number, x0 = 0, spread = 7): SpawnDef[] => {
     const out: SpawnDef[] = [];
-    for (let i = 0; i < n; i++) out.push(W('walker', x0 + ((i % cols) - (cols - 1) / 2) * (spread / cols), Math.floor(i / cols) * 1.1));
+    for (let i = 0; i < n; i++) {
+      const row = Math.floor(i / cols);
+      out.push(W('walker', x0 + ((i % cols) - (cols - 1) / 2) * (spread / cols) + (row % 2 ? spread / cols / 2 : 0), row * 0.8));
+    }
     return out;
   };
+  const gates: GateDef[] = [
+    { d: 46, side: -1, kind: 'add', value: 8, step: 1 },
+    { d: 46, side: 1, kind: 'add', value: -3, step: 1 },
+    { d: 112, side: -1, kind: 'add', value: 6, step: 1 },
+    { d: 112, side: 1, kind: 'mul', value: 2, step: 45 },
+    // The "shoot it blue" lesson: a small red gate that a few volleys flip, next to a nastier one.
+    { d: 172, side: -1, kind: 'add', value: -6, step: 1 },
+    { d: 172, side: 1, kind: 'add', value: -24, step: 1 },
+    { d: 230, side: -1, kind: 'mul', value: 2, step: 60 },
+    { d: 230, side: 1, kind: 'add', value: 30, step: 1 },
+    { d: 286, side: -1, kind: 'add', value: 40, step: 1 },
+    { d: 286, side: 1, kind: 'gun', weapon: 'spread', value: 1, step: 14 },
+  ];
+  const barrels: BarrelDef[] = [
+    { d: 84, x: 2, hp: 45, reward: 'soldiers', amount: 12, roll: false },
+    { d: 200, x: -1.5, hp: 180, reward: 'tank', amount: 1, roll: false },
+    { d: 262.5, x: 1.2, hp: 12, reward: 'explosive', amount: 60, roll: false },
+  ];
+  const waves: WaveDef[] = [
+    { d: 154, hp: { walker: 1, runner: 1, elite: 6, brute: 30, spitter: 3 }, spawns: block(40, 8) },
+    {
+      d: 264,
+      hp: { walker: 2, runner: 2, elite: 8, brute: 70, spitter: 3 },
+      spawns: [...block(72, 9), W('brute', 0, 7), ...[-1.4, -0.7, 0, 0.7, 1.4].map((x) => W('runner', x, 10))],
+    },
+  ];
+  const length = 318;
+  const cap = (d: number, text: string, dur = 3.2): CaptionDef => ({ d, text, dur });
+  const firstGate = gates[0].d;
+  const crate = barrels[0].d;
+  const flip = gates[4].d;
+  const supply = barrels[1].d;
+  const drum = barrels[2].d;
   return {
     level: 1,
     chapter: 1,
@@ -585,41 +836,27 @@ function introLevel(): LevelDef {
     label: 'Prologue',
     theme: 'outskirts',
     speed: 8.6,
-    length: 318,
-    startSoldiers: 4,
-    contact: { walker: 1, runner: 2, elite: 3, brute: 5 },
-    zspeed: { walker: 1.5, runner: 5, elite: 1.7, brute: 1.2 },
-    gates: [
-      { d: 46, side: -1, kind: 'add', value: 8, step: 1 },
-      { d: 46, side: 1, kind: 'add', value: -3, step: 1 },
-      { d: 112, side: -1, kind: 'add', value: 6, step: 1 },
-      { d: 112, side: 1, kind: 'mul', value: 2, step: 45 },
-      { d: 172, side: -1, kind: 'add', value: -25, step: 1 },
-      { d: 172, side: 1, kind: 'add', value: -60, step: 1 },
-      { d: 230, side: -1, kind: 'mul', value: 2, step: 60 },
-      { d: 230, side: 1, kind: 'add', value: 30, step: 1 },
-      { d: 286, side: -1, kind: 'add', value: 40, step: 1 },
-      { d: 286, side: 1, kind: 'rate', value: 30, step: 3 },
-    ],
-    barrels: [
-      { d: 84, x: 2, hp: 70, reward: 'soldiers', amount: 12, roll: false },
-      { d: 200, x: -1.5, hp: 220, reward: 'tank', amount: 1, roll: false },
-      { d: 262.5, x: 1.2, hp: 12, reward: 'explosive', amount: 40, roll: false },
-    ],
-    waves: [
-      { d: 154, hp: { walker: 3, runner: 1, elite: 6, brute: 30 }, spawns: block(16, 4, 0, 5) },
-      { d: 264, hp: { walker: 4, runner: 3, elite: 8, brute: 90 }, spawns: [...block(24, 6), W('brute', 0, 5), W('runner', -1, 9), W('runner', 0, 9), W('runner', 1, 9)] },
-    ],
-    boss: { name: 'The Gatecrusher', hp: 8000, speed: 1.9, smash: 8, scale: 1.7, big: true, minionEvery: 0, minionHp: 1 },
+    length,
+    startSoldiers: 5,
+    contact: { walker: 1, runner: 2, elite: 3, brute: 5, spitter: 2 },
+    zspeed: { walker: 1.5, runner: 5, elite: 1.7, brute: 1.2, spitter: 1 },
+    gates,
+    barrels,
+    waves,
+    hazards: [],
+    spit: { every: 3, maxShare: 0.08 },
+    // HP is re-sized to the squad's firepower when the fight starts (the opening can't be lost).
+    boss: { name: 'The Gatecrusher', hp: 6000, speed: 1.9, smash: 8, scale: 1.7, big: true, minionEvery: 0, minionHp: 1 },
+    // Each caption appears a few seconds before the thing it explains.
     captions: [
-      { d: 2, text: 'The city fell overnight. Your squad is the last one moving.', dur: 3.2 },
-      { d: 22, text: 'Drag left or right to steer your squad', dur: 3.2 },
-      { d: 52, text: 'Shoot crates to crack them open', dur: 3 },
-      { d: 92, text: 'Blue gates add soldiers. Avoid the red ones!', dur: 3.2 },
-      { d: 140, text: 'Every bullet that hits a gate raises its number. Shoot red gates until they turn blue!', dur: 4.2 },
-      { d: 186, text: 'Supply crate! Break it for backup.', dur: 3 },
-      { d: 244, text: 'Red drums explode. Blow them up next to zombies!', dur: 3.2 },
-      { d: 300, text: 'Something huge is blocking the road...', dur: 3 },
+      cap(0, 'The city fell overnight. Your squad is the last one moving.', 2.4),
+      cap(firstGate - 25, 'Drag left or right: steer into the blue gate, avoid the red!', 3),
+      cap(crate - 30, 'Shoot crates to crack them open', 3),
+      cap(waves[0].d - SIM.waveWake + 2, 'Zombies! Your squad opens fire on its own.', 3),
+      cap(flip - 36, 'Every bullet that hits a gate raises its number. Shoot red gates until they turn blue!', 4.2),
+      cap(supply - 24, 'Supply crate! Break it for backup.', 2.6),
+      cap(drum - 26, 'Red drums explode. Blow them up next to zombies!', 3.2),
+      cap(length - 18, 'Something huge is blocking the road...', 3),
     ],
     threats: ['walker', 'runner', 'brute'],
     expected: 150,

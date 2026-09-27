@@ -4,14 +4,18 @@ import * as THREE from 'three';
 import { buildColored, P, vcMaterial } from '../../three/models';
 import type { BarrelDef, BarrelReward } from '../../data/runner';
 import { svg } from './icons';
+import { reinforceCrateGeometry } from './models';
 
-type BarrelLook = 'crate' | 'drum' | 'hazard' | 'supply';
+type BarrelLook = 'crate' | 'drum' | 'hazard' | 'supply' | 'reinforce';
 
 const geoCache = new Map<BarrelLook, THREE.BufferGeometry>();
 function barrelGeometry(look: BarrelLook): THREE.BufferGeometry {
   let g = geoCache.get(look);
   if (g) return g;
   switch (look) {
+    case 'reinforce': // white field crate with a plus: brings back fallen soldiers
+      g = reinforceCrateGeometry();
+      break;
     case 'crate': // olive soldier crate
       g = buildColored([
         { geom: P.box, color: 0x6b7f3a, pos: [0, 0.6, 0], scale: [1.3, 1.2, 1.3] },
@@ -66,6 +70,7 @@ function lookFor(r: BarrelReward): BarrelLook {
   if (r === 'soldiers') return 'crate';
   if (r === 'tank' || r === 'rocket') return 'supply';
   if (r === 'explosive') return 'hazard';
+  if (r === 'heal') return 'reinforce';
   return 'drum';
 }
 
@@ -85,6 +90,8 @@ export function rewardLabel(r: BarrelReward, amount: number): string {
       return 'ROCKETS';
     case 'explosive':
       return 'BOOM';
+    case 'heal':
+      return 'REINFORCEMENTS';
   }
 }
 
@@ -105,10 +112,12 @@ export class BarrelView {
   roll = false;
   private pulse = 0;
   private shownHp = -1;
+  private previewN = -1;
+  private previewEl: HTMLElement | null = null;
   radius = 0.8;
 
   constructor(overlay: HTMLElement, castShadow: boolean) {
-    for (const look of ['crate', 'drum', 'hazard', 'supply'] as BarrelLook[]) {
+    for (const look of ['crate', 'drum', 'hazard', 'supply', 'reinforce'] as BarrelLook[]) {
       const m = new THREE.Mesh(barrelGeometry(look), vcMaterial());
       m.castShadow = castShadow;
       m.visible = false;
@@ -144,9 +153,18 @@ export class BarrelView {
     this.group.visible = true;
     this.group.rotation.set(0, 0, 0);
     this.label.className = 'rn-barrel rn-barrel-' + b.reward;
-    this.iconEl.innerHTML = svg(b.reward, 22) + (b.reward === 'soldiers' ? `<i>+${b.amount}</i>` : '');
+    this.previewN = -1;
+    this.iconEl.innerHTML = svg(b.reward, 22) + (b.reward === 'soldiers' ? `<i>+${b.amount}</i>` : b.reward === 'heal' ? '<i></i>' : '');
+    this.previewEl = b.reward === 'heal' ? this.iconEl.querySelector('i') : null;
     this.label.style.display = 'flex';
     this.syncHp();
+  }
+
+  /** Reinforcement crates show how many fallen soldiers they would bring back right now. */
+  setPreview(n: number): void {
+    if (n === this.previewN || !this.previewEl) return;
+    this.previewN = n;
+    this.previewEl.textContent = `+${n}`;
   }
 
   damage(n: number): boolean {

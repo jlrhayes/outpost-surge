@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildColored, gatePostGeometry, P } from '../../three/models';
-import { gateIsGood, mulStepUp, SIM, type GateDef, type GateKind } from '../../data/runner';
+import { gateIsGood, mulStepUp, SIM, WEAPON_MAX_LEVEL, WEAPONS, type GateDef, type GateKind, type WeaponKind } from '../../data/runner';
 
 const CW = 256;
 const CH = 160;
@@ -32,6 +32,7 @@ let panelGeo: THREE.PlaneGeometry | null = null;
 let glowGeo: THREE.PlaneGeometry | null = null;
 
 export function gateText(kind: GateKind, v: number): string {
+  if (kind === 'gun') return `LV ${v}`;
   if (kind === 'add') return v >= 0 ? `+${v}` : `−${-v}`;
   if (kind === 'mul') return v > 0 ? `×${v}` : `÷${-v}`;
   return (v >= 0 ? '+' : '−') + Math.abs(v) + '%';
@@ -55,6 +56,7 @@ export class GateView {
   kind: GateKind = 'add';
   value = 0;
   step = 1;
+  weapon: WeaponKind = 'rifle';
   hits = 0;
   /** 0 = standing, >0 = fading out after the pair was passed. */
   fading = 0;
@@ -100,6 +102,7 @@ export class GateView {
     this.kind = g.kind;
     this.value = g.value;
     this.step = Math.max(1, g.step);
+    this.weapon = g.weapon ?? 'rifle';
     this.hits = 0;
     this.fading = 0;
     this.chosen = false;
@@ -135,6 +138,7 @@ export class GateView {
       if (this.hits >= this.step) {
         this.hits = 0;
         if (this.kind === 'mul') this.value = mulStepUp(this.value);
+        else if (this.kind === 'gun') this.value = Math.min(WEAPON_MAX_LEVEL, this.value + 1);
         else this.value = Math.min(100, this.value + 1);
       }
     }
@@ -147,8 +151,9 @@ export class GateView {
 
   private recolor(): void {
     this.good = this.isGood;
-    const c = this.good ? 0x3aa0ff : 0xff4a3a;
-    this.frameMat.color.setHex(this.good ? 0xd6ebff : 0xffd6cc);
+    const gun = this.kind === 'gun';
+    const c = gun ? 0xffa820 : this.good ? 0x3aa0ff : 0xff4a3a;
+    this.frameMat.color.setHex(gun ? 0xfff0c8 : this.good ? 0xd6ebff : 0xffd6cc);
     this.glowMat.color.setHex(c);
     this.dirty = true;
   }
@@ -159,7 +164,11 @@ export class GateView {
     g.clearRect(0, 0, CW, CH);
     // Translucent tinted fill with a brighter rim.
     const grad = g.createLinearGradient(0, 0, 0, CH);
-    if (good) {
+    const gun = this.kind === 'gun';
+    if (gun) {
+      grad.addColorStop(0, 'rgba(255,196,70,0.66)');
+      grad.addColorStop(1, 'rgba(225,110,20,0.48)');
+    } else if (good) {
       grad.addColorStop(0, 'rgba(90,180,255,0.62)');
       grad.addColorStop(1, 'rgba(20,110,240,0.42)');
     } else {
@@ -168,7 +177,7 @@ export class GateView {
     }
     g.fillStyle = grad;
     g.fillRect(0, 0, CW, CH);
-    g.strokeStyle = good ? 'rgba(200,235,255,0.95)' : 'rgba(255,215,205,0.95)';
+    g.strokeStyle = gun ? 'rgba(255,240,200,0.95)' : good ? 'rgba(200,235,255,0.95)' : 'rgba(255,215,205,0.95)';
     g.lineWidth = 8;
     g.strokeRect(4, 4, CW - 8, CH - 8);
     // Diagonal sheen.
@@ -183,7 +192,8 @@ export class GateView {
     let sub = '';
     if (this.kind === 'rate') sub = 'FIRE RATE';
     else if (this.kind === 'dmg') sub = 'DAMAGE';
-    const text = gateText(this.kind, this.value);
+    else if (gun) sub = 'NEW GUN  ' + '★'.repeat(this.value) + '☆'.repeat(WEAPON_MAX_LEVEL - this.value);
+    const text = gun ? WEAPONS[this.weapon].name.replace(' GUN', '') : gateText(this.kind, this.value);
     const hasSub = sub !== '';
     let size = hasSub ? 84 : 118;
     g.font = `900 ${size}px system-ui, "Segoe UI", Roboto, Arial, sans-serif`;
@@ -198,7 +208,7 @@ export class GateView {
     const cy = hasSub ? CH * 0.6 : CH * 0.52;
     g.lineJoin = 'round';
     g.lineWidth = Math.max(6, size * 0.12);
-    g.strokeStyle = good ? 'rgba(0,40,110,0.85)' : 'rgba(110,0,0,0.85)';
+    g.strokeStyle = gun ? 'rgba(110,50,0,0.9)' : good ? 'rgba(0,40,110,0.85)' : 'rgba(110,0,0,0.85)';
     g.strokeText(text, CW / 2, cy);
     g.fillStyle = '#ffffff';
     g.fillText(text, CW / 2, cy);
@@ -206,12 +216,12 @@ export class GateView {
       g.font = '900 30px system-ui, "Segoe UI", Roboto, Arial, sans-serif';
       g.lineWidth = 6;
       g.strokeText(sub, CW / 2, CH * 0.22);
-      g.fillStyle = good ? '#ffe680' : '#ffe0d8';
+      g.fillStyle = gun ? '#fff6d0' : good ? '#ffe680' : '#ffe0d8';
       g.fillText(sub, CW / 2, CH * 0.22);
     }
     // Progress toward the next step for multi-hit gates.
     if (this.kind !== 'add' && this.step > 1) {
-      const canStep = this.kind !== 'mul' || this.value < 5;
+      const canStep = this.kind === 'mul' ? this.value < 5 : this.kind === 'gun' ? this.value < WEAPON_MAX_LEVEL : true;
       if (canStep) {
         const p = this.hits / this.step;
         const bx = 34;

@@ -77,6 +77,7 @@ function BossBar() {
 function WeaponChips() {
   const w = runHud.weapon.value;
   const chips: { icon: string; text: string }[] = [];
+  if (w.gun !== 'rifle') chips.push({ icon: w.gun === 'spread' ? 'rn_spread' : 'rn_cannon', text: `LV ${w.gunLv}` });
   if (w.rate > 1.01) chips.push({ icon: 'rn_rate', text: `×${w.rate.toFixed(1)}` });
   if (w.dmg > 1.01) chips.push({ icon: 'rn_dmg', text: `×${w.dmg.toFixed(1)}` });
   if (w.multi > 0) chips.push({ icon: 'rn_multi', text: `+${w.multi}` });
@@ -211,15 +212,29 @@ function ResultOverlay(props: { r: RunOutcome }) {
               {r.intro ? 'Starter supplies' : r.firstClear ? 'First clear rewards' : 'Replay rewards'}
             </div>
             <RewardList reward={r.reward} size={48} animate />
-            {!r.intro && r.reward.troops && <div class="rn-result-note">Surviving soldiers joined your army as troops.</div>}
+            {(r.troops > 0 || r.overflow > 0) && <div class="rn-result-note">{troopNote(r)}</div>}
+            {r.usedPass && (
+              <div class="rn-result-note">
+                Replay pass used ({r.passesLeft} left)
+              </div>
+            )}
           </>
-        ) : r.won ? null : (
-          <div class="rn-result-note">{r.intro ? 'Stay away from red gates and keep shooting!' : 'Tip: shoot red gates blue, grab soldier crates early and focus fast dogs.'}</div>
+        ) : r.won ? (
+          r.practice ? <div class="rn-result-note">Practice run: no replay passes left, so no rewards this time. Passes refill every 30 minutes.</div> : null
+        ) : (
+          <div class="rn-result-note">{r.intro ? 'Stay away from red gates and keep shooting!' : 'Tip: shoot red gates blue, grab soldier crates early and shoot sprinters before they reach you.'}</div>
         )}
         <div class="rn-result-btns">{resultButtons(r)}</div>
       </div>
     </div>
   );
+}
+
+/** "+N soldiers, M sent home as supplies" (troops beyond Drill Ground space pay food + iron instead). */
+function troopNote(r: RunOutcome): string {
+  const joined = r.troops > 0 ? `+${r.troops} soldiers joined your army` : 'No room in your Drill Ground';
+  if (r.overflow <= 0) return joined + '.';
+  return `${joined}, ${r.overflow} sent home as supplies.`;
 }
 
 function resultButtons(r: RunOutcome) {

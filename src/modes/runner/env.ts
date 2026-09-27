@@ -6,6 +6,7 @@ import { mulberry32 } from '../../core/rng';
 import { buildColored, P, propGeometry, vcMaterial, type PropKind } from '../../three/models';
 import type { ThemePalette } from '../../data/runner';
 import { groundTexture, roadTexture, ROAD_TILE, ROAD_WIDTH } from './textures';
+import { groundMat, roadMat } from './mats';
 
 const BEHIND = 24;
 const AHEAD = 136;
@@ -115,7 +116,6 @@ export class RunnerEnv {
   private v = new THREE.Vector3();
   private s = new THREE.Vector3();
   private c = new THREE.Color();
-  private owned: THREE.Material[] = [];
   private ownedGeo: THREE.BufferGeometry[] = [];
 
   constructor(
@@ -129,8 +129,10 @@ export class RunnerEnv {
     const roadLen = WIN + 40;
     this.roadTex.repeat.set(1, roadLen / ROAD_TILE);
     const roadGeo = new THREE.PlaneGeometry(ROAD_WIDTH, roadLen);
-    const roadMat = new THREE.MeshLambertMaterial({ map: this.roadTex });
-    this.road = new THREE.Mesh(roadGeo, roadMat);
+    const roadMaterial = roadMat();
+    roadMaterial.map = this.roadTex;
+    roadMaterial.needsUpdate = true;
+    this.road = new THREE.Mesh(roadGeo, roadMaterial);
     this.road.rotation.x = -Math.PI / 2;
     this.road.receiveShadow = hi;
     this.group.add(this.road);
@@ -141,13 +143,14 @@ export class RunnerEnv {
     const gl = WIN + 80;
     this.groundTex.repeat.set(gw / 14, gl / 14);
     const groundGeo = new THREE.PlaneGeometry(gw, gl);
-    const groundMat = new THREE.MeshLambertMaterial({ map: this.groundTex });
-    this.ground = new THREE.Mesh(groundGeo, groundMat);
+    const groundMaterial = groundMat();
+    groundMaterial.map = this.groundTex;
+    groundMaterial.needsUpdate = true;
+    this.ground = new THREE.Mesh(groundGeo, groundMaterial);
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = -0.03;
     this.ground.receiveShadow = hi;
     this.group.add(this.ground);
-    this.owned.push(roadMat, groundMat);
     this.ownedGeo.push(roadGeo, groundGeo);
 
     // Roadside prop bands.
@@ -303,7 +306,6 @@ export class RunnerEnv {
   dispose(): void {
     this.roadTex.dispose();
     this.groundTex.dispose();
-    for (const m of this.owned) m.dispose();
     for (const g of this.ownedGeo) g.dispose();
     for (const mesh of this.meshes.values()) mesh.dispose();
     this.meshes.clear();

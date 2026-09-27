@@ -3,6 +3,7 @@
 // threat up the road.
 import * as THREE from 'three';
 import { vehicleModel } from '../../three/models';
+import { shellMat } from './mats';
 
 export type HelperKind = 'tank' | 'rocket';
 
@@ -49,7 +50,7 @@ export class Helpers {
 
   constructor(private castShadow: boolean) {
     this.shellGeo = new THREE.IcosahedronGeometry(0.22, 0);
-    this.shellMat = new THREE.MeshBasicMaterial({ color: 0xffc050, toneMapped: false });
+    this.shellMat = shellMat();
     this.shellMesh = new THREE.InstancedMesh(this.shellGeo, this.shellMat, 24);
     this.shellMesh.count = 0;
     this.shellMesh.frustumCulled = false;
@@ -163,7 +164,6 @@ export class Helpers {
     this.clear();
     this.shellMesh.dispose();
     this.shellGeo.dispose();
-    this.shellMat.dispose();
   }
 }
 
