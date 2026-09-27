@@ -270,14 +270,14 @@ export class Environment {
     for (const [x, z] of [[-13.2, 21.7], [-12.4, 22], [12.2, 21.9], [13.2, 19.3]]) add('barrel', x, z, 0, 0.8);
     for (const [x, z] of [[-4.2, -12.2], [4.3, -12.4], [-13.2, -3.5], [13.3, -2.8]]) add('crate', x, z, rng(), 0.7);
     // Outskirts beyond the outer ring: pines, trees and rocks.
-    const nPines = quality === 'high' ? 130 : 60;
+    const nPines = quality === 'high' ? 110 : 50;
     let guard = 0;
     while ((lists.pine?.length ?? 0) < nPines && guard++ < 5000) {
       const x = (rng() * 2 - 1) * 84;
       const z = (rng() * 2 - 1) * 92;
       if (Math.abs(x) < 51 && Math.abs(z) < 59) continue;
       if (Math.abs(x) < 4 && z > 0) continue; // keep the avenue clear
-      add(rng() < 0.75 ? 'pine' : 'tree', x, z, undefined, 0.9 + rng() * 0.9);
+      add('pine', x, z, undefined, 0.9 + rng() * 0.9);
       if (rng() < 0.25) add('rock', x + 2, z + 1, undefined, 0.7 + rng() * 0.8);
     }
 

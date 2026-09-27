@@ -5,10 +5,34 @@ import { registerBonusProvider, registerPowerProvider } from '../core/bonuses';
 import { emit, on } from '../core/events';
 import { toast } from '../core/nav';
 import { sfx } from '../core/audio';
-import { game } from '../core/store';
+import { game, mutate } from '../core/store';
 import { buildingBonuses, buildingsPower, completeDueIn, maxCount } from '../systems/buildings';
-import { BUILDING_TYPES, buildingName } from '../data/buildings';
+import { BUILDINGS, BUILDING_TYPES, PLOTS, START_PLOTS, buildingName } from '../data/buildings';
 import type { BuildingType } from '../core/types';
+
+// Save repair: every outpost has exactly one Command Post (plot 0) and one Bulwark Gate (plot 1).
+// Older/foreign saves may lack them (the gate cannot be placed from a build menu).
+{
+  const need: [BuildingType, number][] = [
+    ['hq', START_PLOTS.hq],
+    ['wall', START_PLOTS.wall],
+  ];
+  const missing = need.filter(([type]) => !game.base.buildings.some((b) => b.type === type));
+  if (missing.length) {
+    mutate((s) => {
+      for (const [type, plot] of missing) {
+        // Free the fixed plot if something else squats on it.
+        const other = s.base.buildings.find((b) => b.plot === plot);
+        if (other) {
+          const kind = BUILDINGS[other.type]?.plot;
+          const free = PLOTS.find((p) => p.kind === kind && p.district === 0 && !s.base.buildings.some((b) => b.plot === p.id));
+          if (free) other.plot = free.id;
+        }
+        s.base.buildings.push({ uid: `${type}_1`, type, level: 1, plot, upgradeEndsAt: null, upgradeStartedAt: null, collectedAt: Date.now(), stored: 0 });
+      }
+    });
+  }
+}
 
 // Completes finished upgrades/constructions (also after offline time: timers are absolute).
 registerTicker('buildings', (s, t) => {

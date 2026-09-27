@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { P, buildColored, type Part } from '../../three/models/builder';
+import { propGeometry, type PropKind } from '../../three/models';
 
 /** Accumulates vertex-coloured primitive parts; call build() for one merged geometry. */
 export class PartList {
@@ -29,6 +30,12 @@ export class PartList {
 
   blob(color: number, x: number, y: number, z: number, sx: number, sy: number, sz: number, ry = 0, low = true): this {
     this.parts.push({ geom: low ? P.sphereLow : P.sphere, color, pos: [x, y, z], scale: [sx, sy, sz], rot: [0, ry, 0] });
+    return this;
+  }
+
+  /** An art-kit prop (keeps its own vertex colours). */
+  prop(kind: PropKind, x: number, y: number, z: number, ry = 0, s = 1): this {
+    this.parts.push({ geom: propGeometry(kind), pos: [x, y, z], rot: [0, ry, 0], scale: [s, s, s] });
     return this;
   }
 

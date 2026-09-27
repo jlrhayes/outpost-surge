@@ -1,11 +1,10 @@
 // OWNER: base agent. Zombie-infested district blocks around the compound: ground lots, ruins, animated
 // fog, instanced zombies, and the "district cleared" reveal (fog lifts, zombies drop, land is reclaimed).
 import * as THREE from 'three';
-import * as Models from '../../three/models';
-import { vcMaterial, zombieGeometry } from '../../three/models';
+import { ruinedBlockModel, vcMaterial, zombieGeometry } from '../../three/models';
 import { mulberry32 } from '../../core/rng';
 import { DISTRICTS, DISTRICT_SIZE, PLOTS, type DistrictDef } from '../../data/buildings';
-import { PartList, buildParts, groupToGeometry, mergeAll } from './geo';
+import { PartList, buildParts, mergeAll, normalizeGeometry } from './geo';
 
 const LOT = DISTRICT_SIZE - 3.2; // usable lot inside the streets
 const FOG_LAYERS = [0.35, 1.25, 2.3, 3.6];
@@ -15,8 +14,6 @@ const COL_INFESTED = new THREE.Color(0x565a4c);
 const COL_CLEARED = new THREE.Color(0x9ccd66);
 const COL_NEXT = new THREE.Color(0x6a5f4c);
 
-type RuinFactory = (seed: number) => THREE.Group;
-const ruinedBlockModel = (Models as unknown as Record<string, unknown>)[['ruined', 'BlockModel'].join('')] as RuinFactory | undefined;
 
 // ---------------------------------------------------------------------------------------------
 // Procedural ruins / cleared decor
@@ -113,27 +110,27 @@ function ruinFallback(d: DistrictDef): THREE.BufferGeometry {
   return buildParts(p);
 }
 
+const WHITE = new THREE.Color(0xffffff);
+
+/** Ruined block for a district: the art kit's block body (its own haze child is replaced by our fog layer). */
 function ruinGeometry(d: DistrictDef): THREE.BufferGeometry {
-  if (ruinedBlockModel) {
-    try {
-      const grp = ruinedBlockModel(d.id);
-      const g = groupToGeometry(grp);
-      if (g) {
-        g.computeBoundingBox();
-        const bb = g.boundingBox!;
-        const sx = bb.max.x - bb.min.x;
-        const sz = bb.max.z - bb.min.z;
-        const s = Math.min(1.6, LOT / Math.max(0.1, sx, sz));
-        const cx = (bb.max.x + bb.min.x) / 2;
-        const cz = (bb.max.z + bb.min.z) / 2;
-        g.translate(-cx, -bb.min.y, -cz);
-        g.scale(s, s, s);
-        g.translate(d.x, 0, d.z);
-        return g;
-      }
-    } catch (e) {
-      console.warn('ruinedBlockModel failed, using fallback ruins', e);
+  try {
+    const grp = ruinedBlockModel(d.id * 7 + 3);
+    const body = grp.getObjectByName('body') as THREE.Mesh | undefined;
+    if (body?.geometry) {
+      body.updateMatrix();
+      const g = normalizeGeometry(body.geometry, body.matrix, WHITE);
+      g.computeBoundingBox();
+      const bb = g.boundingBox!;
+      const size = Math.max(0.1, bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+      const s = Math.min(1.05, LOT / size);
+      g.translate(-(bb.max.x + bb.min.x) / 2, 0, -(bb.max.z + bb.min.z) / 2);
+      g.scale(s, 1, s);
+      g.translate(d.x, 0, d.z);
+      return g;
     }
+  } catch (e) {
+    console.warn('ruinedBlockModel failed, using fallback ruins', e);
   }
   return ruinFallback(d);
 }
@@ -144,37 +141,44 @@ function decorGeometry(d: DistrictDef): THREE.BufferGeometry {
   const r = (a: number, b: number) => a + rng() * (b - a);
   const half = LOT / 2 - 0.9;
   const plots = PLOTS.filter((pl) => pl.district === d.id);
-  const clearOfPlots = (x: number, z: number) => plots.every((pl) => Math.abs(pl.x - x) > 2.6 || Math.abs(pl.z - z) > 2.6);
-  // Corner trees & bushes.
-  let guard = 0;
-  let trees = 0;
-  while (trees < 4 && guard++ < 60) {
-    const x = d.x + r(-half, half);
-    const z = d.z + r(-half, half);
-    if (!clearOfPlots(x, z)) continue;
-    trees++;
-    const s = r(0.8, 1.15);
-    p.cyl(0x6b4a2a, x, 0.5 * s, z, 0.13 * s, 1 * s);
-    p.blob(rng() < 0.5 ? 0x3f8f3f : 0x4f9c42, x, 1.55 * s, z, 1.5 * s, 1.35 * s, 1.5 * s, r(0, 3));
+  const clearOfPlots = (x: number, z: number) => plots.every((pl) => Math.abs(pl.x - x) > 2.4 || Math.abs(pl.z - z) > 2.4);
+  const scatter = (n: number, place: (x: number, z: number) => void) => {
+    let guard = 0;
+    let k = 0;
+    while (k < n && guard++ < 80) {
+      const x = d.x + r(-half, half);
+      const z = d.z + r(-half, half);
+      if (!clearOfPlots(x, z)) continue;
+      k++;
+      place(x, z);
+    }
+  };
+  // Freshly planted trees, bushes and grass on the reclaimed lot.
+  scatter(3, (x, z) => p.prop(rng() < 0.7 ? 'tree' : 'pine', x, 0.05, z, r(0, 6), r(0.75, 1.05)));
+  scatter(5, (x, z) => p.prop('bush', x, 0.05, z, r(0, 6), r(0.8, 1.2)));
+  scatter(7, (x, z) => p.prop('grass', x, 0.05, z, r(0, 6), r(0.8, 1.3)));
+  // A salvage corner: survivors' tent or a container, crates and a barrel.
+  const sx = rng() < 0.5 ? -1 : 1;
+  const sz = rng() < 0.5 ? -1 : 1;
+  const ex = d.x + sx * (half - 0.9);
+  const ez = d.z + sz * (half - 0.9);
+  if (clearOfPlots(ex, ez)) {
+    if (rng() < 0.5) p.prop('tent', ex, 0.05, ez, sx > 0 ? -Math.PI / 2 : Math.PI / 2, 0.9);
+    else p.prop('container', ex, 0.05, ez, Math.PI / 2, 0.8);
+    p.prop('crate', ex - sx * 1.6, 0.05, ez, r(0, 1), 0.75);
+    p.prop('ammo_crate', ex - sx * 1.5, 0.05, ez - sz * 1.1, r(0, 1), 0.9);
+    p.prop('barrel', ex, 0.05, ez - sz * 1.6, 0, 0.8);
   }
-  guard = 0;
-  let bushes = 0;
-  while (bushes < 5 && guard++ < 60) {
-    const x = d.x + r(-half, half);
-    const z = d.z + r(-half, half);
-    if (!clearOfPlots(x, z)) continue;
-    bushes++;
-    p.blob(0x5aa84a, x, 0.3, z, r(0.7, 1.2), r(0.5, 0.8), r(0.7, 1.2), r(0, 3));
-  }
-  // Salvage pile & tidy crates by the sidewalk.
-  const ex = d.x + (rng() < 0.5 ? -1 : 1) * (half - 0.4);
-  const ez = d.z + (rng() < 0.5 ? -1 : 1) * (half - 0.4);
-  p.slab(0xa07a4a, ex, 0.1, ez, 0.9, 0.8, 0.9, 0.2);
-  p.slab(0xb08a58, ex + 0.2, 0.9, ez, 0.7, 0.6, 0.7, -0.3);
-  p.cyl(0x3f7a9a, ex - 0.9, 0.5, ez, 0.32, 0.9);
-  // Flower strip.
-  for (let i = 0; i < 4; i++) p.blob(i % 2 ? 0xffd35a : 0xff7a8a, d.x - half + 0.6 + i * 0.5, 0.25, d.z + half - 0.3, 0.35, 0.3, 0.35);
+  // Flower strip along one sidewalk.
+  for (let i = 0; i < 5; i++) p.blob(i % 2 ? 0xffd35a : 0xff7a8a, d.x - half + 0.5 + i * 0.55, 0.22, d.z - sz * (half + 0.2), 0.32, 0.28, 0.32);
   return buildParts(p);
+}
+
+function chunkKey(d: DistrictDef): string {
+  if (d.ring === 1) return d.z < 0 ? 'r1n' : 'r1s';
+  if (d.z <= -48) return 'r2n';
+  if (d.z >= 48) return 'r2s';
+  return d.x < 0 ? 'r2w' : 'r2e';
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -185,7 +189,7 @@ function fogMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0x44503f) } },
+    uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0x5e6e58) } },
     vertexShader: /* glsl */ `
       attribute float aFade;
       varying float vFade;
@@ -239,8 +243,7 @@ export class DistrictLayer {
   private walkers: THREE.InstancedMesh;
   private brutes: THREE.InstancedMesh;
   private zombies: Zombie[] = [];
-  private ruinsMesh: THREE.Mesh | null = null;
-  private decorMesh: THREE.Mesh | null = null;
+  private chunkMeshes: THREE.Mesh[] = [];
   private ruinCache = new Map<number, THREE.BufferGeometry>();
   private decorCache = new Map<number, THREE.BufferGeometry>();
   private marker: THREE.Mesh;
@@ -255,11 +258,15 @@ export class DistrictLayer {
   private s = new THREE.Vector3();
   private col = new THREE.Color();
 
-  constructor(quality: 'low' | 'high', cleared: number) {
+  constructor(
+    private readonly quality: 'low' | 'high',
+    cleared: number,
+  ) {
     const n = DISTRICTS.length;
     // Ground lots.
-    const tileGeom = new THREE.BoxGeometry(LOT + 0.4, 0.14, LOT + 0.4);
-    tileGeom.translate(0, 0.07, 0);
+    // Lot top sits at y=0.05, just under the ruined blocks' own asphalt (0.08) so the ruins show their
+    // ground while infested; once the ruins sink during a reveal, the (brightening) lot shows through.
+    const tileGeom = new THREE.BoxGeometry(LOT + 0.4, 0.1, LOT + 0.4);
     this.tiles = new THREE.InstancedMesh(tileGeom, new THREE.MeshLambertMaterial({ color: 0xffffff }), n);
     this.tiles.receiveShadow = true;
     DISTRICTS.forEach((d, i) => {
@@ -287,8 +294,7 @@ export class DistrictLayer {
     this.fog.frustumCulled = false;
     this.group.add(this.fog);
 
-    // Zombies.
-    const perD = quality === 'high' ? 7 : 4;
+    // Zombies (denser in the inner ring the camera usually looks at).
     const rng = mulberry32(99);
     let wi = 0;
     let bi = 0;
@@ -296,6 +302,7 @@ export class DistrictLayer {
     // live zombies always occupy instances [0, count) and cleared ones are simply not drawn.
     [...DISTRICTS].reverse().forEach((d) => {
       const di = d.id - 1;
+      const perD = quality === 'high' ? (d.ring === 1 ? 6 : 4) : d.ring === 1 ? 3 : 2;
       for (let k = 0; k < perD + 1; k++) {
         const brute = k === perD;
         this.zombies.push({
@@ -336,7 +343,12 @@ export class DistrictLayer {
 
   private ruin(i: number): THREE.BufferGeometry {
     let g = this.ruinCache.get(i);
-    if (!g) this.ruinCache.set(i, (g = ruinGeometry(DISTRICTS[i])));
+    if (!g) {
+      const d = DISTRICTS[i];
+      // Low quality: the far ring uses the lighter procedural ruins.
+      g = this.quality === 'low' && d.ring > 1 ? ruinFallback(d) : ruinGeometry(d);
+      this.ruinCache.set(i, g);
+    }
     return g;
   }
 
@@ -346,36 +358,36 @@ export class DistrictLayer {
     return g;
   }
 
-  /** Rebuilds merged ruin/decor meshes for a cleared count (optionally leaving one district out). */
+  /**
+   * Rebuilds merged ruin/decor meshes for a cleared count (optionally leaving one district out).
+   * Merged per chunk (ring 1 north/south, ring 2 four sides) so off-screen chunks are frustum-culled;
+   * only the inner ring casts shadows.
+   */
   private rebuild(cleared: number, skip = -1): void {
-    for (const k of ['ruinsMesh', 'decorMesh'] as const) {
-      const m = this[k];
-      if (m) {
-        this.group.remove(m);
-        m.geometry.dispose();
-        this[k] = null;
-      }
+    for (const m of this.chunkMeshes) {
+      this.group.remove(m);
+      m.geometry.dispose();
     }
-    const ruins: THREE.BufferGeometry[] = [];
-    const decor: THREE.BufferGeometry[] = [];
-    DISTRICTS.forEach((_, i) => {
+    this.chunkMeshes.length = 0;
+    const chunks = new Map<string, { ruins: THREE.BufferGeometry[]; decor: THREE.BufferGeometry[]; inner: boolean }>();
+    DISTRICTS.forEach((d, i) => {
       if (i === skip) return;
-      if (i < cleared) decor.push(this.decor(i));
-      else ruins.push(this.ruin(i));
+      const key = chunkKey(d);
+      let c = chunks.get(key);
+      if (!c) chunks.set(key, (c = { ruins: [], decor: [], inner: d.ring === 1 }));
+      if (i < cleared) c.decor.push(this.decor(i));
+      else c.ruins.push(this.ruin(i));
     });
-    const rg = mergeAll(ruins);
-    if (rg) {
-      this.ruinsMesh = new THREE.Mesh(rg, vcMaterial());
-      this.ruinsMesh.castShadow = true;
-      this.ruinsMesh.receiveShadow = true;
-      this.group.add(this.ruinsMesh);
-    }
-    const dg = mergeAll(decor);
-    if (dg) {
-      this.decorMesh = new THREE.Mesh(dg, vcMaterial());
-      this.decorMesh.castShadow = true;
-      this.decorMesh.receiveShadow = true;
-      this.group.add(this.decorMesh);
+    for (const c of chunks.values()) {
+      for (const list of [c.ruins, c.decor]) {
+        const g = mergeAll(list);
+        if (!g) continue;
+        const m = new THREE.Mesh(g, vcMaterial());
+        m.castShadow = c.inner;
+        m.receiveShadow = true;
+        this.group.add(m);
+        this.chunkMeshes.push(m);
+      }
     }
   }
 
@@ -441,6 +453,24 @@ export class DistrictLayer {
     this.rebuild(this.cleared);
     this.updateMarker();
     r.onDone?.();
+  }
+
+  /** Frees GPU resources owned by this layer (shared model geometries are left alone). */
+  dispose(): void {
+    this.finishReveal();
+    for (const m of this.chunkMeshes) m.geometry.dispose();
+    for (const g of this.ruinCache.values()) g.dispose();
+    for (const g of this.decorCache.values()) g.dispose();
+    this.tiles.geometry.dispose();
+    (this.tiles.material as THREE.Material).dispose();
+    this.tiles.dispose();
+    this.fog.geometry.dispose();
+    this.fogMat.dispose();
+    this.fog.dispose();
+    this.marker.geometry.dispose();
+    (this.marker.material as THREE.Material).dispose();
+    this.walkers.dispose();
+    this.brutes.dispose();
   }
 
   /** District (1-based id) under a ground point, or 0. */

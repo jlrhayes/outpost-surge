@@ -59,8 +59,8 @@ export class BaseMode implements GameMode {
     this.quality = game.settings.quality;
     this.scene.background = new THREE.Color(0xa6d8ee);
     this.scene.fog = new THREE.Fog(0xb9def0, 150, 300);
-    this.scene.add(new THREE.HemisphereLight(0xeef8ff, 0x6f7a55, 1.25));
-    this.sun = new THREE.DirectionalLight(0xfff0d6, 2.1);
+    this.scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a8a5c, 1.5));
+    this.sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
     this.sun.castShadow = this.quality === 'high';
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
@@ -150,6 +150,8 @@ export class BaseMode implements GameMode {
     this.sun.castShadow = q === 'high';
     // Crowd sizes depend on quality: rebuild the ambient layers.
     this.scene.remove(this.life.group, this.districts.group);
+    this.life.dispose();
+    this.districts.dispose();
     this.life = new Life(q);
     this.districts = new DistrictLayer(q, this.districts.cleared);
     this.scene.add(this.life.group, this.districts.group);
@@ -268,9 +270,17 @@ export class BaseMode implements GameMode {
     let uid = req.uid;
     if (!uid && req.type) {
       const list = buildingsOf(game, req.type);
-      let best: (typeof list)[number] | undefined;
-      for (const b of list) if (!best || b.level > best.level) best = b;
-      uid = best?.uid;
+      // A plain "go to type" (no panel) while another copy could be built points at a free plot instead
+      // (e.g. "Own 2 Farms"); otherwise pick the most advanced existing building.
+      const canAdd =
+        !req.openPanel &&
+        list.length < maxCount(game, req.type) &&
+        freePlotsFor(game, req.type).some((id) => this.views.emptyPlots.has(id));
+      if (!canAdd) {
+        let best: (typeof list)[number] | undefined;
+        for (const b of list) if (!best || b.level > best.level) best = b;
+        uid = best?.uid;
+      }
     }
     if (uid) {
       const v = this.views.view(uid);

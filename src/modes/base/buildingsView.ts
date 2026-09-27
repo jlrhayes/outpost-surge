@@ -1,7 +1,7 @@
 // OWNER: base agent. 3D views of placed buildings + empty plot pads: model per level (rebuilt when the
 // level changes), construction overlays, foundations/ghosts for level 0, hit boxes, selection ring.
 import * as THREE from 'three';
-import { buildingModel, constructionModel, vcMaterial } from '../../three/models';
+import { animateModel, buildingModel, constructionModel, emptyPlotGeometry, vcMaterial } from '../../three/models';
 import type { GameState } from '../../core/store';
 import type { BuildingType } from '../../core/types';
 import type { BuildingState } from '../../state/base';
@@ -61,23 +61,18 @@ function foundationGeometry(fp: number): THREE.BufferGeometry {
   return g;
 }
 
+/** Empty plot pads: the art kit's cleared lot for outpost plots, tilled soil rows for resource plots. */
 function padGeometry(kind: 'core' | 'res'): THREE.BufferGeometry {
+  if (kind === 'core') return emptyPlotGeometry();
   const p = new PartList();
-  const s = 4.2;
-  if (kind === 'res') {
-    p.slab(0x9a7a52, 0, 0, 0, s, 0.14, s);
-    for (let i = -1.5; i <= 1.5; i += 0.75) p.slab(0x7e623f, i, 0.14, 0, 0.3, 0.06, s - 0.5);
-  } else {
-    p.slab(0xcac4b4, 0, 0, 0, s, 0.14, s);
-    p.slab(0xa8a191, 0, 0.14, 0, s - 0.7, 0.02, s - 0.7);
+  const s = 3.5;
+  p.slab(0x9a7a52, 0, 0, 0, s, 0.1, s);
+  for (let i = -1.25; i <= 1.26; i += 0.625) p.slab(0x7e623f, i, 0.1, 0, 0.26, 0.06, s - 0.45);
+  for (const a of [-1, 1]) {
+    p.slab(0xd8d2c0, a * (s / 2 - 0.06), 0, 0, 0.12, 0.16, s);
+    p.slab(0xd8d2c0, 0, 0, a * (s / 2 - 0.06), s, 0.16, 0.12);
   }
-  // Dashed border.
-  for (let i = -s / 2 + 0.3; i < s / 2; i += 0.7) {
-    p.slab(0xf4f1e8, i, 0.14, -s / 2 + 0.12, 0.38, 0.03, 0.1);
-    p.slab(0xf4f1e8, i, 0.14, s / 2 - 0.12, 0.38, 0.03, 0.1);
-    p.slab(0xf4f1e8, -s / 2 + 0.12, 0.14, i, 0.1, 0.03, 0.38);
-    p.slab(0xf4f1e8, s / 2 - 0.12, 0.14, i, 0.1, 0.03, 0.38);
-  }
+  for (const a of [-1, 1]) for (const b of [-1, 1]) p.slab(0x6fb04a, a * 1.2, 0.1, b * 1.3, 0.35, 0.22, 0.35);
   return buildParts(p);
 }
 
@@ -269,8 +264,8 @@ export class BuildingViews {
     if (upgrading && !v.construction) {
       const c = constructionModel();
       setShadows(c);
-      const k = v.footprint / 3.4;
-      c.scale.set(k, Math.max(1, (v.height / 3) * 0.95), k);
+      const k = Math.max(0.9, Math.min(1.8, v.footprint / 3.6));
+      c.scale.setScalar(k);
       v.construction = c;
       v.root.add(c);
       changed = true;
@@ -310,7 +305,8 @@ export class BuildingViews {
         sxz = 1 - w * 0.5;
       }
       v.model.scale.set(sxz, sy, sxz);
-      if (v.construction) v.construction.rotation.y = Math.sin(t * 0.5) * 0.02;
+      animateModel(v.model, dt, t / 1000);
+      if (v.construction) animateModel(v.construction, dt, t / 1000);
     }
     if (this.selRing.visible) {
       const mat = this.selRing.material as THREE.MeshBasicMaterial;

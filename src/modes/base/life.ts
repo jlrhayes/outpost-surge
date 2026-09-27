@@ -151,6 +151,18 @@ export class Life {
     }
   }
 
+  /** Frees resources owned by this layer (shared model geometries are left alone). */
+  dispose(): void {
+    this.survivors.dispose();
+    this.soldiers.dispose();
+    for (const v of [this.specOps, this.lootTruck]) {
+      v.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) m.geometry.dispose();
+      });
+    }
+  }
+
   update(t: number): void {
     // Survivors.
     const o = this.out;
