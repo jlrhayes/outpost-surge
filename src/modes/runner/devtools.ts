@@ -32,6 +32,14 @@ function step(sec: number, bot?: number) {
   return snapshot(r);
 }
 
+/** One 60 fps sim frame with an optional bot, no rendering (for fast custom probes). */
+function tick(bot?: number) {
+  const r = mode();
+  t += 1 / 60;
+  if (bot !== undefined) drive(r, bot);
+  r.update(1 / 60, t);
+}
+
 function snapshot(r: any) {
   return {
     d: +r.squad.d.toFixed(1),
@@ -96,13 +104,19 @@ function drive(r: any, skill: number) {
       }
       tx = clearOf(x0, x1, sq.radius, sq.x);
     }
-    // 2) Acid about to land on us: sidestep.
+    // 2) Acid in the air aimed at us: sidestep out of the landing circle.
     if (tx === null) {
       const a = r.acid;
       for (let i = 0; i < a.n; i++) {
-        const left = a.dur[i] - a.t[i];
-        if (left > 1.0) continue;
         if (Math.abs(a.x1[i] - sq.x) < SIM.spitSplash + sq.radius * 0.7) tx = clearOf(a.x1[i] - SIM.spitSplash, a.x1[i] + SIM.spitSplash, sq.radius * 0.6, sq.x);
+      }
+    }
+    // 3) Don't walk into an explosive drum.
+    if (tx === null) {
+      for (const b of r.barrels) {
+        if (!b.active || b.reward !== 'explosive') continue;
+        const ahead = b.d - sq.d;
+        if (ahead > 0 && ahead < 12 && Math.abs(b.x - sq.x) < sq.radius + b.radius) tx = clearOf(b.x - b.radius, b.x + b.radius, sq.radius, sq.x);
       }
     }
   }
@@ -239,4 +253,4 @@ async function table(levels: number[], skills = [1, 0, -1], reps = 1) {
   return rows;
 }
 
-(window as any).__runnerDev = { step, play, sweep, compact, stats, table, run, calib: () => lastCalib, snapshot: () => snapshot(mode()) };
+(window as any).__runnerDev = { step, tick, play, sweep, compact, stats, table, run, calib: () => lastCalib, snapshot: () => snapshot(mode()) };

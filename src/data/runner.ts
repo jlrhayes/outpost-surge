@@ -278,7 +278,7 @@ interface ChapterTune {
 
 const TUNE: ChapterTune[] = [
   { speed: 8.2, start: 5, alpha0: 0.52, alpha1: 0.82, bossSec: 5, red: 0.2, peak: 200 },
-  { speed: 8.6, start: 7, alpha0: 0.8, alpha1: 1.0, bossSec: 5.5, red: 0.35, peak: 300 },
+  { speed: 8.6, start: 7, alpha0: 0.68, alpha1: 0.98, bossSec: 5.5, red: 0.35, peak: 300 },
   { speed: 9.0, start: 9, alpha0: 0.92, alpha1: 1.12, bossSec: 6, red: 0.5, peak: 420 },
   { speed: 9.3, start: 11, alpha0: 1.04, alpha1: 1.24, bossSec: 6.5, red: 0.6, peak: 560 },
   { speed: 9.6, start: 13, alpha0: 1.14, alpha1: 1.34, bossSec: 7, red: 0.7, peak: 720 },
@@ -444,7 +444,9 @@ function rawLevel(level: number): LevelDef {
     const hz = hazardSeg.has(seg);
     if (hz) {
       const hd = d0 + len * 0.3;
-      const wire = rng() < 0.5;
+      // Alternate the two kinds (by level and by hazard) so both show up early and often.
+      rng();
+      const wire = (level + hazards.length) % 2 === 1;
       if (wire) hazards.push({ d: hd, kind: 'wire', x: 0, half: 1.7, amp: 2.3, period: r(3.0, 3.8), phase: r(0, 6.28), bite: 0.45 });
       else {
         const side = rng() < 0.5 ? -1 : 1;
@@ -483,7 +485,9 @@ function rawLevel(level: number): LevelDef {
       else if (reward === 'dmg') amount = 35;
       else if (reward === 'multi') amount = 1;
       else if (reward === 'heal') amount = 60; // % of the soldiers lost so far
-      const x = reward === 'explosive' ? r(-1.5, 1.5) : pick(rng, [-2, 2, -2, 2, 0]);
+      // The opening crate sits dead ahead of the squad's start so everyone gets it.
+      const lane = pick(rng, [-2, 2, -2, 2, 0]);
+      const x = reward === 'explosive' ? r(-1.5, 1.5) : seg === 0 ? 0 : lane;
       barrels.push({ d: bd, x, hp, reward, amount, roll: reward !== 'explosive' && reward !== 'heal' && t > 0.15 && rng() < 0.3 });
       // Expected effect of picking it up.
       // Expected effect of picking it up (a decent player gets most, not all, of them).
@@ -544,11 +548,12 @@ function rawLevel(level: number): LevelDef {
     barrels,
     waves,
     hazards,
-    spit: { every: 2.8 - t * 0.5, maxShare: 0.07 + t * 0.03 },
+    spit: { every: 2.8 - t * 0.5, maxShare: 0.06 + t * 0.03 },
     boss: {
       name: boss ? ch.bossName : pick(rng, BOSS_NAMES),
       hp: bossHp,
-      speed: 1.5 + t * 0.9,
+      // Reaches the squad in ~10-14 s: a decent squad kills it just in time, a weak one gets smashed.
+      speed: 2.0 + t * 1.3,
       smash: Math.max(2, Math.round(exp.count * (0.06 + 0.06 * t))),
       scale: boss ? 1.35 : 1,
       big: boss,
@@ -717,7 +722,8 @@ function makeWave(
   opt: { allowRunner: boolean; allowBrute: boolean; allowElite: boolean; allowSpitter: boolean; final: boolean },
 ): WaveDef {
   const r = (a: number, b: number) => a + (b - a) * rng();
-  const budget = exp.dps() * 3.6 * alpha * (opt.final ? 1.25 : 1);
+  // The last horde before the boss is the big one: stars count what survives after the peak.
+  const budget = exp.dps() * 3.6 * alpha * (opt.final ? 1.6 : 1);
   // Aim for ~30 (chapter 1) to ~100 (late) walker-equivalents per wave, 2-3x the old sparse waves;
   // walker HP absorbs the rest of the budget.
   const target = 36 + Math.min(64, level * 1.5);
@@ -743,8 +749,8 @@ function makeWave(
     units -= (n * hp.elite) / walker;
   }
   // Spitters hang at the back of the horde and lob acid over it.
-  if (opt.allowSpitter && rng() < 0.35 + (opt.final ? 0.15 : 0) + Math.min(0.15, (level - 9) * 0.006)) {
-    const n = clamp(1 + (units > 120 ? 1 : 0) + (level >= 34 ? 1 : 0), 1, 3);
+  if (opt.allowSpitter && rng() < 0.32 + (opt.final ? 0.15 : 0) + Math.min(0.12, (level - 9) * 0.005)) {
+    const n = clamp(1 + (level >= 30 && units > 90 ? 1 : 0), 1, 2);
     for (let i = 0; i < n; i++) spawns.push({ kind: 'spitter', x: clamp((i - (n - 1) / 2) * 2.6 + r(-0.6, 0.6), -3.3, 3.3), dd: 11 + r(0, 2.5) });
     units -= (n * hp.spitter) / walker;
   }

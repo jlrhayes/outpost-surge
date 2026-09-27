@@ -9,6 +9,7 @@ import { game } from '../../core/store';
 import { goTo } from '../../core/nav';
 import { sfx } from '../../core/audio';
 import { bonusMult, getBonus } from '../../core/bonuses';
+import { vehicleModel } from '../../three/models';
 import {
   CHAPTERS,
   levelDef,
@@ -70,6 +71,7 @@ export class RunnerMode implements GameMode {
   private overlay: HTMLDivElement | null = null;
   private countEl: HTMLDivElement | null = null;
   private countNum: HTMLElement | null = null;
+  private countAnim: Animation | null = null;
   private skyTex: THREE.Texture | null = null;
 
   private env: RunnerEnv | null = null;
@@ -85,6 +87,8 @@ export class RunnerMode implements GameMode {
   private gates: GateView[] = [];
   private barrels: BarrelView[] = [];
   private hazards: HazardView[] = [];
+  /** Never-rendered copies of the late-arriving models, kept so their shaders stay compiled. */
+  private warmScene: THREE.Scene | null = null;
 
   // Run state.
   private phase: Phase = 'run';
@@ -194,6 +198,7 @@ export class RunnerMode implements GameMode {
     stage.appendChild(this.overlay);
     this.countEl = document.createElement('div');
     this.countEl.className = 'rn-count';
+    this.countAnim = null;
     this.countNum = document.createElement('span');
     this.countEl.appendChild(this.countNum);
     this.overlay.appendChild(this.countEl);
@@ -314,8 +319,16 @@ export class RunnerMode implements GameMode {
     this.active = true;
     this.updateCamera(0);
     this.env.update(0);
-    // Warm up this scene's shaders off the main thread where the browser supports it.
+    // Warm up this scene's shaders (plus the boss and helper vehicles that only show up later) off the
+    // main thread where the browser supports it.
     engine.renderer.compileAsync(this.scene, this.camera).catch(() => {});
+    if (!this.warmScene) {
+      this.warmScene = new THREE.Scene();
+      const bv = new BossView(this.def.boss, 0, hi);
+      this.warmScene.add(bv.group, vehicleModel('tank', 'SSR'), vehicleModel('missile', 'SR'));
+      this.warmScene.traverse((o) => (o.visible = true));
+    }
+    engine.renderer.compileAsync(this.warmScene, this.camera, this.scene).catch(() => {});
     if (import.meta.env.DEV) {
       (window as any).__runner = this;
       void import('./devtools');
@@ -650,7 +663,7 @@ export class RunnerMode implements GameMode {
    * tougher zombies so the level keeps some bite (square-root response, capped). Squads behind the
    * curve get no slack: stars measure how well the run went.
    */
-  private hordeScale(d: number, lo = 1, hi = 1.25): number {
+  private hordeScale(d: number, lo = 1, hi = 1.5): number {
     if (this.params.intro) return 1;
     const e = this.expectedDps(d);
     if (e <= 0) return 1;
@@ -933,7 +946,9 @@ export class RunnerMode implements GameMode {
   private popCount(up: boolean): void {
     const el = this.countEl;
     if (!el) return;
-    el.animate(
+    // One pop at a time: a horde clash changes the count many times a second.
+    this.countAnim?.cancel();
+    this.countAnim = el.animate(
       [
         { transform: 'translate(-50%, -100%) scale(1)' },
         { transform: `translate(-50%, -100%) scale(${up ? 1.45 : 0.82})`, color: up ? '#8dffa0' : '#ff7a6a', offset: 0.35 },
@@ -970,7 +985,7 @@ export class RunnerMode implements GameMode {
       this.fx.addShake(0.5);
       this.fx.screenFlash('red');
       sfx.explode();
-      this.loseSoldiers(Math.max(2, Math.round(this.squad.count * 0.12)), b.x, b.d, 'drum');
+      this.loseSoldiers(Math.max(2, Math.round(this.squad.count * 0.1)), b.x, b.d, 'drum');
       this.splash(b.x, b.d, 3.5, b.amount);
     } else {
       this.fx.debris(b.x, 0.8, b.d, 0x8a7a60, 10);
@@ -992,7 +1007,8 @@ export class RunnerMode implements GameMode {
         this.fx.addShake(0.5);
         sfx.explode();
         this.splash(x, d, 4.2, b.amount);
-        if (Math.abs(d - sq.d) < 4.5 && Math.abs(x - sq.x) < 4.5 + sq.radius) this.loseSoldiers(Math.max(1, Math.round(sq.count * 0.08)), x, d, 'drum');
+        // Blowing it up right on top of your own squad hurts.
+        if (Math.abs(d - sq.d) < 3 + sq.depth && Math.abs(x - sq.x) < 3 + sq.radius) this.loseSoldiers(Math.max(1, Math.round(sq.count * 0.05)), x, d, 'drum');
         return;
       case 'soldiers':
         this.setCount(sq.count + b.amount, x, d);
@@ -1256,7 +1272,7 @@ export class RunnerMode implements GameMode {
       const hp = Math.round(Math.max(900, Math.min(9000, this.dps() * 6.5 + this.helpers.count * 200)) / 100) * 100;
       bossDef = { ...def.boss, hp };
     } else {
-      const k = this.hordeScale(this.squad.d, 1, 1.2);
+      const k = this.hordeScale(this.squad.d, 1, 1.3);
       if (Math.abs(k - 1) > 0.02) bossDef = { ...def.boss, hp: Math.round((def.boss.hp * k) / 100) * 100 };
     }
     this.boss = new BossView(bossDef, this.squad.d + SIM.bossSpawn, this.quality === 'high');

@@ -222,6 +222,7 @@ export class Fx {
   private texts: HTMLDivElement[] = [];
   private textIdx = 0;
   private flashEl: HTMLDivElement;
+  private flashAnim: Animation | null = null;
   private proj = new THREE.Vector3();
 
   constructor(
@@ -319,7 +320,8 @@ export class Fx {
   screenFlash(kind: 'white' | 'red' | 'blue'): void {
     const el = this.flashEl;
     el.className = 'rn-flash ' + kind;
-    el.animate([{ opacity: 0.55 }, { opacity: 0 }], { duration: 380, easing: 'ease-out' });
+    this.flashAnim?.cancel();
+    this.flashAnim = el.animate([{ opacity: 0.55 }, { opacity: 0 }], { duration: 380, easing: 'ease-out' });
   }
 
   /** Floating text anchored where a world point is on screen right now. */

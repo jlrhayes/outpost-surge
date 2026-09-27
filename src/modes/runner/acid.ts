@@ -108,13 +108,13 @@ export class Acid {
       tmpS.set(R, R, R);
       tmpM.compose(tmpV, flatQ, tmpS);
       this.ring.setMatrixAt(i, tmpM);
-      this.ring.setColorAt(i, tmpC.setRGB(0.75 * pulse, 1 * pulse, 0.15 * pulse));
+      this.ring.setColorAt(i, tmpC.setRGB(0.42 * pulse, 1 * pulse, 0.1 * pulse));
       const f = Math.max(0.05, p) * R;
       tmpV.y = 0.06;
       tmpS.set(f, f, f);
       tmpM.compose(tmpV, flatQ, tmpS);
       this.disc.setMatrixAt(i, tmpM);
-      this.disc.setColorAt(i, tmpC.setRGB(0.35 + 0.25 * p, 0.55 + 0.3 * p, 0.05));
+      this.disc.setColorAt(i, tmpC.setRGB(0.16 + 0.2 * p, 0.42 + 0.4 * p, 0.04));
     }
     for (const m of this.meshes) {
       m.count = this.n;
