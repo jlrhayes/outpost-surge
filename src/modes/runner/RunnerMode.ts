@@ -52,6 +52,8 @@ const INTRO_FLOOR = 10;
 /** Seconds without input before the opening run starts steering for the player. */
 const ASSIST_IDLE = 2.5;
 const clampX = (x: number) => Math.max(-LANE_LIMIT, Math.min(LANE_LIMIT, x));
+/** Rounded v clamped to [lo, max(lo, hi)]. */
+const clampI = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(Math.max(lo, hi), Math.round(v)));
 
 export class RunnerMode implements GameMode {
   readonly scene = new THREE.Scene();
@@ -101,6 +103,8 @@ export class RunnerMode implements GameMode {
   private weaponLv = 1;
   /** Soldiers lost so far this level (reinforcement crates bring some back). */
   private lostPool = 0;
+  /** Losses by cause this run (tuning / dev bot reports). */
+  lossBy: Record<string, number> = {};
   private fireAcc = 0;
   private flashAcc = 0;
   private simT = 0;
@@ -244,6 +248,7 @@ export class RunnerMode implements GameMode {
     this.weapon = 'rifle';
     this.weaponLv = 1;
     this.lostPool = 0;
+    this.lossBy = {};
     this.dmgBonus = intro ? 1 : bonusMult(game, 'runner_damage_pct');
     this.fireAcc = 0;
     this.simT = 0;
@@ -623,9 +628,33 @@ export class RunnerMode implements GameMode {
 
   private spawnWave(w: WaveDef): void {
     const def = this.def;
+    const k = this.hordeScale(w.d);
     for (const s of w.spawns) {
-      this.horde.spawn(s.kind, s.x, w.d + s.dd, w.hp[s.kind], def.zspeed[s.kind], def.contact[s.kind]);
+      this.horde.spawn(s.kind, s.x, w.d + s.dd, w.hp[s.kind] * k, def.zspeed[s.kind], def.contact[s.kind]);
     }
+  }
+
+  /** The generator's expected squad DPS at road distance d. */
+  private expectedDps(d: number): number {
+    const tr = this.def.trace;
+    let v = tr.length ? tr[0].dps : 0;
+    for (const e of tr) {
+      if (e.d > d) break;
+      v = e.dps;
+    }
+    return v;
+  }
+
+  /**
+   * A squad far ahead of the level's expected curve (e.g. a lucky early multiplier) meets somewhat
+   * tougher zombies so the level keeps some bite (square-root response, capped). Squads behind the
+   * curve get no slack: stars measure how well the run went.
+   */
+  private hordeScale(d: number, lo = 1, hi = 1.25): number {
+    if (this.params.intro) return 1;
+    const e = this.expectedDps(d);
+    if (e <= 0) return 1;
+    return Math.max(lo, Math.min(hi, Math.sqrt(this.dps() / e)));
   }
 
   // ------------------------------------------------------------------------------------------
@@ -882,13 +911,14 @@ export class RunnerMode implements GameMode {
     if (sq.count <= 0 && (this.phase === 'run' || this.phase === 'boss')) this.fail();
   }
 
-  private loseSoldiers(n: number, x: number, d: number): void {
+  private loseSoldiers(n: number, x: number, d: number, cause = 'other'): void {
     const sq = this.squad;
     const before = sq.count;
     if (n <= 0 || before <= 0) return;
     this.setCount(before - Math.min(before, n));
     const lost = before - sq.count;
     if (lost <= 0) return;
+    this.lossBy[cause] = (this.lossBy[cause] ?? 0) + lost;
     this.pendingLoss += lost;
     this.lossX = x;
     this.lossD = d;
@@ -918,12 +948,15 @@ export class RunnerMode implements GameMode {
   private onZombiePassed = (z: Zombie) => this.horde.remove(z);
 
   private zombieContact(z: Zombie): void {
-    const n = z.contact;
+    // Big zombies crush a share of the squad (capped by the level's value), so one brute is a real
+    // threat to any squad size without snowballing a squad that's already behind.
+    const c = this.squad.count;
+    const n = z.kind === 'brute' ? clampI(c * 0.06, 4, z.contact) : z.kind === 'elite' ? clampI(c * 0.022, 2, z.contact) : z.contact;
     const big = z.kind === 'brute';
     this.fx.zombiePuff(z.x, z.d, big);
     this.kills++;
     this.horde.remove(z);
-    this.loseSoldiers(n, z.x, z.d);
+    this.loseSoldiers(n, z.x, z.d, z.kind);
     if (big) {
       this.fx.addShake(0.35);
       this.fx.ring(z.x, z.d, 2, 0xff6040, 0.35);
@@ -937,7 +970,7 @@ export class RunnerMode implements GameMode {
       this.fx.addShake(0.5);
       this.fx.screenFlash('red');
       sfx.explode();
-      this.loseSoldiers(Math.max(2, Math.round(this.squad.count * 0.12)), b.x, b.d);
+      this.loseSoldiers(Math.max(2, Math.round(this.squad.count * 0.12)), b.x, b.d, 'drum');
       this.splash(b.x, b.d, 3.5, b.amount);
     } else {
       this.fx.debris(b.x, 0.8, b.d, 0x8a7a60, 10);
@@ -959,7 +992,7 @@ export class RunnerMode implements GameMode {
         this.fx.addShake(0.5);
         sfx.explode();
         this.splash(x, d, 4.2, b.amount);
-        if (Math.abs(d - sq.d) < 4.5 && Math.abs(x - sq.x) < 4.5 + sq.radius) this.loseSoldiers(Math.max(1, Math.round(sq.count * 0.08)), x, d);
+        if (Math.abs(d - sq.d) < 4.5 && Math.abs(x - sq.x) < 4.5 + sq.radius) this.loseSoldiers(Math.max(1, Math.round(sq.count * 0.08)), x, d, 'drum');
         return;
       case 'soldiers':
         this.setCount(sq.count + b.amount, x, d);
@@ -1066,6 +1099,7 @@ export class RunnerMode implements GameMode {
       this.fx.screenFlash('red');
       if (n < before) {
         this.setCount(n);
+        this.lossBy.gate = (this.lossBy.gate ?? 0) + before - sq.count;
         this.pendingLoss += before - sq.count;
         this.lossX = sq.x;
         this.lossD = sq.d;
@@ -1184,8 +1218,8 @@ export class RunnerMode implements GameMode {
       return;
     }
     const frac = inside / Math.max(1, sq.rendered);
-    const n = Math.max(1, Math.min(Math.ceil(sq.count * this.def.spit.maxShare), Math.round(sq.count * frac * 0.6)));
-    this.loseSoldiers(n, x, d);
+    const n = Math.max(1, Math.min(Math.ceil(sq.count * this.def.spit.maxShare), Math.round(sq.count * frac * 0.45)));
+    this.loseSoldiers(n, x, d, 'acid');
     this.fx.addShake(0.2);
     sfx.hit();
   };
@@ -1205,7 +1239,7 @@ export class RunnerMode implements GameMode {
     const frac = inside / Math.max(1, sq.rendered);
     const n = Math.max(1, Math.round(sq.count * frac * h.bite));
     const hx = Math.max(h.x0, Math.min(h.x1, sq.x));
-    this.loseSoldiers(n, hx, h.d);
+    this.loseSoldiers(n, hx, h.d, 'hazard');
     for (let k = 0; k < 4; k++) this.fx.sparks(hx + (Math.random() - 0.5) * 2, 0.6, h.d, 0xffe0a0, 5, 5);
     this.fx.addShake(0.35);
     this.fx.screenFlash('red');
@@ -1221,6 +1255,9 @@ export class RunnerMode implements GameMode {
       // Sized to the squad the player actually brought: a ~6 s showdown, never a wall.
       const hp = Math.round(Math.max(900, Math.min(9000, this.dps() * 6.5 + this.helpers.count * 200)) / 100) * 100;
       bossDef = { ...def.boss, hp };
+    } else {
+      const k = this.hordeScale(this.squad.d, 1, 1.2);
+      if (Math.abs(k - 1) > 0.02) bossDef = { ...def.boss, hp: Math.round((def.boss.hp * k) / 100) * 100 };
     }
     this.boss = new BossView(bossDef, this.squad.d + SIM.bossSpawn, this.quality === 'high');
     this.boss.x = 0;
@@ -1250,7 +1287,7 @@ export class RunnerMode implements GameMode {
       this.fx.addShake(0.75);
       this.fx.screenFlash('red');
       sfx.explode();
-      this.loseSoldiers(boss.smash, this.squad.x, this.squad.d);
+      this.loseSoldiers(clampI(this.squad.count * 0.11, 2, boss.smash), this.squad.x, this.squad.d, 'boss');
     }
     if (boss.state === 'walk' && this.def.boss.minionEvery > 0 && this.phase === 'boss') {
       this.minionT -= dt;

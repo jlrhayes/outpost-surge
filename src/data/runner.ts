@@ -230,6 +230,8 @@ export interface LevelDef {
   threats: ZombieKind[];
   /** Rough expected soldier count at the boss for a decent run (preview only). */
   expected: number;
+  /** Expected squad (count, dps) right after each gate pair (balancing/dev bots). */
+  trace: { d: number; count: number; dps: number }[];
 }
 
 /** Multiplier gate ladder: negative = divide. Each `step` hits climbs one rung. */
@@ -275,12 +277,12 @@ interface ChapterTune {
 }
 
 const TUNE: ChapterTune[] = [
-  { speed: 8.2, start: 5, alpha0: 0.44, alpha1: 0.72, bossSec: 5, red: 0.2, peak: 200 },
-  { speed: 8.6, start: 7, alpha0: 0.66, alpha1: 0.86, bossSec: 5.5, red: 0.35, peak: 300 },
-  { speed: 9.0, start: 9, alpha0: 0.78, alpha1: 0.98, bossSec: 6, red: 0.5, peak: 420 },
-  { speed: 9.3, start: 11, alpha0: 0.9, alpha1: 1.1, bossSec: 6.5, red: 0.6, peak: 560 },
-  { speed: 9.6, start: 13, alpha0: 1.0, alpha1: 1.2, bossSec: 7, red: 0.7, peak: 720 },
-  { speed: 10.0, start: 15, alpha0: 1.1, alpha1: 1.3, bossSec: 7.5, red: 0.8, peak: 900 },
+  { speed: 8.2, start: 5, alpha0: 0.52, alpha1: 0.82, bossSec: 5, red: 0.2, peak: 200 },
+  { speed: 8.6, start: 7, alpha0: 0.8, alpha1: 1.0, bossSec: 5.5, red: 0.35, peak: 300 },
+  { speed: 9.0, start: 9, alpha0: 0.92, alpha1: 1.12, bossSec: 6, red: 0.5, peak: 420 },
+  { speed: 9.3, start: 11, alpha0: 1.04, alpha1: 1.24, bossSec: 6.5, red: 0.6, peak: 560 },
+  { speed: 9.6, start: 13, alpha0: 1.14, alpha1: 1.34, bossSec: 7, red: 0.7, peak: 720 },
+  { speed: 10.0, start: 15, alpha0: 1.24, alpha1: 1.44, bossSec: 7.5, red: 0.8, peak: 900 },
 ];
 
 /** First level each mechanic can show up in (the level select and captions use these too). */
@@ -298,11 +300,13 @@ class Expect {
   ) {
     this.count = start;
   }
+  /** Gate hits/s. Multi-shot counts half: missing that one barrel shouldn't make every gate unwinnable. */
   bulletsPerSec(): number {
-    return Math.min(SIM.bulletCap * this.rate, this.count * SIM.fireRate * this.rate) * (1 + this.multi);
+    return Math.min(SIM.bulletCap * this.rate, this.count * SIM.fireRate * this.rate) * (1 + this.multi * 0.5);
   }
+  /** Weapon upgrades are discounted a little: not every player lands every one of them. */
   dps(): number {
-    return this.count * SIM.fireRate * this.rate * this.dmg * (1 + SIM.multiDamage * this.multi);
+    return this.count * SIM.fireRate * Math.pow(this.rate * this.dmg, 0.85) * (1 + SIM.multiDamage * this.multi * 0.75);
   }
   /** Hits a player can pour into one gate while approaching it (gate in range for range/speed seconds). */
   gateHits(): number {
@@ -331,9 +335,10 @@ function campaign(): LevelDef[] {
   if (CAMPAIGN) return CAMPAIGN;
   const defs: LevelDef[] = [];
   for (let l = 1; l <= LEVEL_COUNT; l++) defs.push(rawLevel(l));
-  const exp = clampNeighbours(defs.map((d) => d.expected), 1.5);
+  // 1.45 leaves room for the 2-significant-figure rounding below to stay within 1.5x.
+  const exp = clampNeighbours(defs.map((d) => d.expected), 1.45);
   const boss0 = defs.map((d, i) => d.boss.hp * Math.min(1, exp[i] / Math.max(1, d.expected)));
-  const boss = clampNeighbours(boss0, 1.5);
+  const boss = clampNeighbours(boss0, 1.45);
   defs.forEach((d, i) => {
     d.expected = Math.round(exp[i]);
     d.boss.hp = niceNum(boss[i]);
@@ -421,12 +426,14 @@ function rawLevel(level: number): LevelDef {
   const barrels: BarrelDef[] = [];
   const waves: WaveDef[] = [];
   const hazards: HazardDef[] = [];
+  const trace: LevelDef['trace'] = [];
   let helperGiven = level < 2;
   let weaponGates = 0;
   let gunGiven = level < INTRO_LEVEL.gun;
   let explosivesLeft = level < 5 ? 1 : 2;
 
   const start = tune.start + Math.floor(k * 2);
+  trace.push({ d: 0, count: start, dps: Math.round(exp.dps()) });
   let d = speed * 3.2;
   for (let seg = 0; seg <= nGates; seg++) {
     const len = seg === nGates ? speed * 4.5 : speed * r(6, 7.8);
@@ -436,7 +443,7 @@ function rawLevel(level: number): LevelDef {
     for (let w = 0; w < waveSeg[seg]; w++) waveDs.push(d0 + len * (waveSeg[seg] > 1 ? 0.35 + 0.45 * w : 0.55) + 6);
     const hz = hazardSeg.has(seg);
     if (hz) {
-      const hd = d0 + len * 0.2;
+      const hd = d0 + len * 0.3;
       const wire = rng() < 0.5;
       if (wire) hazards.push({ d: hd, kind: 'wire', x: 0, half: 1.7, amp: 2.3, period: r(3.0, 3.8), phase: r(0, 6.28), bite: 0.45 });
       else {
@@ -448,7 +455,7 @@ function rawLevel(level: number): LevelDef {
     // Barrels early in the segment so there's time to shoot them.
     const nb = barrelSeg[seg] + (seg === healSeg ? 1 : 0);
     for (let b = 0; b < nb; b++) {
-      let bd = d0 + len * ((hz ? 0.36 : 0.22) + 0.3 * b);
+      let bd = d0 + len * ((hz ? 0.44 : 0.22) + 0.26 * b);
       let reward: BarrelReward;
       if (seg === 0) reward = 'soldiers';
       else if (seg === healSeg && b === nb - 1) reward = 'heal';
@@ -467,7 +474,8 @@ function rawLevel(level: number): LevelDef {
         ]) as BarrelReward;
       // Explosive drums sit in a wave's front line: shoot them as the horde walks past.
       if (reward === 'explosive') bd = waveDs[0] - 1.5;
-      const hpSec = reward === 'explosive' ? 0.2 : reward === 'tank' || reward === 'rocket' ? r(1.2, 1.6) : reward === 'heal' ? r(0.8, 1.1) : r(0.7, 1.3);
+      // HP in seconds of the expected squad's fire (bullets have to get through the horde to reach it).
+      const hpSec = reward === 'explosive' ? 0.2 : reward === 'tank' || reward === 'rocket' ? r(0.8, 1.1) : reward === 'heal' ? r(0.5, 0.7) : r(0.45, 0.8);
       const hp = niceNum(Math.max(6, exp.dps() * hpSec));
       let amount = 0;
       if (reward === 'soldiers') amount = Math.round(peak * r(0.06, 0.12)) + 3;
@@ -478,9 +486,10 @@ function rawLevel(level: number): LevelDef {
       const x = reward === 'explosive' ? r(-1.5, 1.5) : pick(rng, [-2, 2, -2, 2, 0]);
       barrels.push({ d: bd, x, hp, reward, amount, roll: reward !== 'explosive' && reward !== 'heal' && t > 0.15 && rng() < 0.3 });
       // Expected effect of picking it up.
-      if (reward === 'soldiers') exp.count += amount * 0.85;
-      else if (reward === 'rate') exp.rate *= 1.2;
-      else if (reward === 'dmg') exp.dmg *= 1.3;
+      // Expected effect of picking it up (a decent player gets most, not all, of them).
+      if (reward === 'soldiers') exp.count += amount * 0.75;
+      else if (reward === 'rate') exp.rate *= 1.15;
+      else if (reward === 'dmg') exp.dmg *= 1.22;
       else if (reward === 'multi') exp.multi = Math.min(SIM.maxMulti, exp.multi + 1);
       else if (reward === 'tank' || reward === 'rocket') exp.dmg *= 1.15;
       else if (reward === 'heal') exp.count *= 1.05;
@@ -498,12 +507,11 @@ function rawLevel(level: number): LevelDef {
       const target = start + (peak - start) * Math.pow((seg + 1) / nGates, 1.15);
       const pair = makeGatePair(rng, d, exp, tune.red, t, seg, weaponGates < 2, !gunGiven, target);
       if (pair.some((g) => g.kind === 'rate' || g.kind === 'dmg')) weaponGates++;
-      if (pair.some((g) => g.kind === 'gun')) {
-        gunGiven = true;
-        exp.dmg *= 1.12;
-      }
+      // A gun gate is an alternative to its soldiers gate: the expectation follows the soldiers.
+      if (pair.some((g) => g.kind === 'gun')) gunGiven = true;
       gates.push(...pair);
       exp.count = Math.max(exp.count + 1, expectedAfter(pair, exp));
+      trace.push({ d, count: Math.round(exp.count), dps: Math.round(exp.dps()) });
     }
   }
   const length = d;
@@ -526,7 +534,7 @@ function rawLevel(level: number): LevelDef {
     startSoldiers: start,
     contact: {
       walker: 1,
-      runner: 2 + Math.floor(t * 3),
+      runner: 2 + Math.floor(t * 1.8),
       elite: Math.max(3, Math.round(exp.count * 0.025)),
       brute: Math.max(6, Math.round(exp.count * 0.07)),
       spitter: 2,
@@ -536,7 +544,7 @@ function rawLevel(level: number): LevelDef {
     barrels,
     waves,
     hazards,
-    spit: { every: 2.5 - t * 0.6, maxShare: 0.1 + t * 0.04 },
+    spit: { every: 2.8 - t * 0.5, maxShare: 0.07 + t * 0.03 },
     boss: {
       name: boss ? ch.bossName : pick(rng, BOSS_NAMES),
       hp: bossHp,
@@ -550,6 +558,7 @@ function rawLevel(level: number): LevelDef {
     captions: [],
     threats,
     expected: Math.round(exp.count),
+    trace,
   };
 }
 
@@ -708,16 +717,17 @@ function makeWave(
   opt: { allowRunner: boolean; allowBrute: boolean; allowElite: boolean; allowSpitter: boolean; final: boolean },
 ): WaveDef {
   const r = (a: number, b: number) => a + (b - a) * rng();
-  const budget = exp.dps() * 2.7 * alpha * (opt.final ? 1.25 : 1);
-  // Aim for ~45-100 walker-equivalents per wave; walker HP absorbs the rest.
-  const target = 42 + Math.min(58, level * 1.5);
+  const budget = exp.dps() * 3.6 * alpha * (opt.final ? 1.25 : 1);
+  // Aim for ~30 (chapter 1) to ~100 (late) walker-equivalents per wave, 2-3x the old sparse waves;
+  // walker HP absorbs the rest of the budget.
+  const target = 36 + Math.min(64, level * 1.5);
   const walker = Math.max(1, Math.round(budget / target));
   const hp: Record<ZombieKind, number> = {
     walker,
     runner: Math.max(1, Math.round(walker * 0.6)),
-    elite: Math.max(5, Math.round(walker * 10)),
-    brute: Math.max(14, Math.round(walker * 30)),
-    spitter: Math.max(3, Math.round(walker * 4)),
+    elite: Math.max(5, Math.round(walker * 7)),
+    brute: Math.max(14, Math.round(walker * 16)),
+    spitter: Math.max(3, Math.round(walker * 3)),
   };
   let units = budget / walker; // walker-equivalents
   const spawns: SpawnDef[] = [];
@@ -733,13 +743,13 @@ function makeWave(
     units -= (n * hp.elite) / walker;
   }
   // Spitters hang at the back of the horde and lob acid over it.
-  if (opt.allowSpitter && rng() < 0.42 + (opt.final ? 0.2 : 0) + Math.min(0.2, (level - 9) * 0.01)) {
-    const n = clamp(1 + Math.floor(units / 80) + (level >= 30 ? 1 : 0), 1, 3);
+  if (opt.allowSpitter && rng() < 0.35 + (opt.final ? 0.15 : 0) + Math.min(0.15, (level - 9) * 0.006)) {
+    const n = clamp(1 + (units > 120 ? 1 : 0) + (level >= 34 ? 1 : 0), 1, 3);
     for (let i = 0; i < n; i++) spawns.push({ kind: 'spitter', x: clamp((i - (n - 1) / 2) * 2.6 + r(-0.6, 0.6), -3.3, 3.3), dd: 11 + r(0, 2.5) });
     units -= (n * hp.spitter) / walker;
   }
   if (opt.allowRunner && rng() < 0.6) {
-    const n = clamp(Math.round((units * r(0.12, 0.25)) / 0.6), 4, 18);
+    const n = clamp(Math.round((units * r(0.08, 0.16)) / 0.6), 4, 12);
     const cx = r(-2, 2);
     for (let i = 0; i < n; i++) {
       const row = Math.floor(i / 4);
@@ -747,7 +757,8 @@ function makeWave(
     }
     units -= n * 0.6;
   }
-  const n = clamp(Math.round(units), 6, 130);
+  // The walker block stays dense even when brutes/elites take a big share of the budget.
+  const n = clamp(Math.round(units), Math.max(6, Math.min(Math.round(target * 0.6), Math.round(budget / walker))), 130);
   const shape = pick(rng, ['block', 'block', 'block', 'twin', 'wedge', 'wall'] as const);
   const W = 7.2;
   const jit = () => r(-0.12, 0.12);
@@ -860,6 +871,7 @@ function introLevel(): LevelDef {
     ],
     threats: ['walker', 'runner', 'brute'],
     expected: 150,
+    trace: [],
   };
 }
 
