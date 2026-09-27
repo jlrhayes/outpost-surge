@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Model Gallery</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #9fcdf0; font-family: system-ui, sans-serif; }
+      #bar { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; z-index: 5;
+        background: rgba(20, 30, 45, 0.72); }
+      #bar button { font: 600 12px system-ui; padding: 5px 9px; border: 0; border-radius: 6px; background: #2c4d73; color: #fff; cursor: pointer; }
+      #bar button.on { background: #ffb617; color: #222; }
+      #labels { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
+      .lbl { position: absolute; transform: translate(-50%, -100%); font: 600 11px system-ui; color: #fff; white-space: nowrap;
+        text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+      .lbl small { font-weight: 400; opacity: 0.85; }
+      #info { position: fixed; bottom: 6px; left: 8px; font: 12px system-ui; color: #fff; text-shadow: 0 1px 2px #000; z-index: 5; }
+    </style>
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="labels"></div>
+    <div id="info"></div>
+    <script type="module" src="/src/three/models/gallery.ts"></script>
+  </body>
+</html>

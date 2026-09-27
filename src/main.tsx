@@ -52,3 +52,11 @@ function boot() {
 }
 
 boot();
+
+// PWA offline support (public/sw.js): production web builds only, never inside the Capacitor Android app
+// (which already serves the game from local files).
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !(window as any).Capacitor?.isNativePlatform?.()) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker registration failed:', err));
+  });
+}
