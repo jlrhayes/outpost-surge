@@ -115,7 +115,11 @@ look great behind the same API; code against the API, not the current placeholde
 
 ### Cross-module query APIs (keep signatures)
 - base → `src/systems/buildings.ts`: `hqLevel(s)`, `buildingLevel(s, type)`, `buildingsOf(s, type)`,
-  `getBuilding(s, uid)`, `productionPerHour(s, res)`.
+  `getBuilding(s, uid)`, `productionPerHour(s, res)`, `troopCapacity(s)`, `hospitalCapacity(s)`,
+  `maxTrainTier(s)`, `trainBatchSize(s, barracksUid?)`, `marchSizePerHero(s, heroType)`, `freeFinishMs(s)`.
+- lead → `src/core/nav.ts`: `focusBuilding({ uid? | type?, openPanel? })` pans the base camera to a building
+  (quest "Go" buttons, requirement links). Base mode implements it by watching the `baseFocus` signal.
+- lead → `src/core/unlocks.ts`: `isUnlocked(s, feature)`, `unlockHint(feature)`, `districtsCleared(s)`.
 - heroes → `src/systems/heroes.ts`: `squadCombatants(s, squadId)`, `squadPower(s, squadId)`, `squadReady(s, squadId)`.
 - heroes → `src/systems/battle.ts`: `simulateBattle(a, b, seed)`, `startBattle(req)`, `BattleResult`.
 - meta → `src/systems/troops.ts`: `totalTroops(s)`, `bestTroopTier(s)`, `applyTroopLosses(s, n)`.
