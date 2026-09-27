@@ -143,7 +143,7 @@ upgrades take seconds; the chapter quest tracker always tells the player what to
   and red `-N`/`÷N` gates, **each bullet hit raises a gate's value by 1** (red can be shot to blue); barrels
   with HP + reward icon (soldiers, weapon upgrade, helper unit); walkers, fast dogs, brutes, boss with a top HP
   bar. Win = boss dead/end reached with ≥1 soldier; stars by % of peak kept. **Surviving soldiers become real
-  troops** (`reward.troops` at `bestTroopTier`, max 60/level) plus resources/heroExp.
+  troops** (`reward.troops` at `maxTrainTier`, max 60/level, clamped to free troop capacity (overflow paid as supplies)) plus resources/heroExp.
 - **Districts** (§2.7): the base is surrounded by zombie-infested district blocks. Campaign stage N = district
   N (`game.heroes.campaign.stage` = next district, `districtsCleared(s)` in `src/core/unlocks.ts`). Heroes module
   owns stage enemies/battles/rewards (`campaign` screen); base module renders districts (infested → cleared) and
