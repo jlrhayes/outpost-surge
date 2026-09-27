@@ -410,6 +410,8 @@ function applyLevelUp(s: GameState, b: BuildingState, t: number): Completed {
 export function completeDueIn(s: GameState, t: number): Completed[] {
   const done: Completed[] = [];
   for (const b of s.base.buildings) {
+    // Clock moved backwards (device time change / debug skip undone): don't freeze producers for hours.
+    if (b.collectedAt > t + 60_000) b.collectedAt = t;
     if (b.upgradeEndsAt !== null && b.upgradeEndsAt <= t) done.push(applyLevelUp(s, b, t));
   }
   return done;

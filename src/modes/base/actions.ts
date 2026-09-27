@@ -129,8 +129,13 @@ function layer(): HTMLDivElement {
 
 const FALLBACK_X: Partial<Record<CurrencyId, number>> = { food: 0.34, iron: 0.52, gold: 0.7, diamonds: 0.86, heroExp: 0.14 };
 
+const BAR_INDEX: Partial<Record<CurrencyId, number>> = { food: 0, iron: 1, gold: 2, diamonds: 3 };
+
 function targetFor(res: CurrencyId): { x: number; y: number } {
-  const el = document.querySelector(`[data-res="${res}"]`) as HTMLElement | null;
+  let el = document.querySelector(`[data-res="${res}"]`) as HTMLElement | null;
+  // The HUD resource bar lists food, iron, gold, diamonds in order.
+  const idx = BAR_INDEX[res];
+  if (!el && idx !== undefined) el = document.querySelectorAll('.hud-layer .res-bar .res-pill-icon')[idx] as HTMLElement | null;
   if (el) {
     const r = el.getBoundingClientRect();
     if (r.width > 0) return { x: r.left + Math.min(16, r.width / 2), y: r.top + r.height / 2 };
