@@ -60,3 +60,24 @@ export function toast(text: string, kind: Toast['kind'] = 'info'): void {
     toasts.value = toasts.value.filter((x) => x.id !== t.id);
   }, 2200);
 }
+
+/**
+ * Ask the base scene to pan to (and highlight) a building — used by quest "Go" buttons and
+ * requirement links. Switches to the base mode if needed. The base mode watches `baseFocus`.
+ */
+export interface BaseFocusRequest {
+  uid?: string;
+  /** Focus the best building of this type (or an empty plot where it can be built if none exists). */
+  type?: import('./types').BuildingType;
+  /** Also open the building panel after focusing. */
+  openPanel?: boolean;
+  /** Unique stamp so repeated requests re-trigger. */
+  t: number;
+}
+export const baseFocus = signal<BaseFocusRequest | null>(null);
+
+export function focusBuilding(req: Omit<BaseFocusRequest, 't'>): void {
+  if (route.value.mode !== 'base') goTo('base');
+  else screens.value = [];
+  baseFocus.value = { ...req, t: Date.now() };
+}
