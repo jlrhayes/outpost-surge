@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!--
+    Outpost Surge app icon (original artwork): a crenellated outpost shield with a lightning bolt.
+    Master source for every PNG icon/splash: run `npm run icons` (scripts/gen-icons.mjs) after editing.
+    The script reuses the defs block and the emblem between the emblem:start/emblem:end markers. The emblem is
+    drawn in 512x512 design space centred on (256, 263); keep the markers and gradient ids intact.
+  -->
+  <defs>
+    <linearGradient id="os-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f4d33"/>
+      <stop offset="1" stop-color="#101a14"/>
+    </linearGradient>
+    <radialGradient id="os-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd23f" stop-opacity="0.42"/>
+      <stop offset="0.55" stop-color="#ffb000" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#ffb000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="os-shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6f9442"/>
+      <stop offset="1" stop-color="#2f4a26"/>
+    </linearGradient>
+    <linearGradient id="os-rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe066"/>
+      <stop offset="1" stop-color="#d48f0f"/>
+    </linearGradient>
+    <linearGradient id="os-bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff7b0"/>
+      <stop offset="0.45" stop-color="#ffd23f"/>
+      <stop offset="1" stop-color="#f28c00"/>
+    </linearGradient>
+    <clipPath id="os-shield-clip">
+      <path d="M106 86H166V126H226V86H286V126H346V86H406V260C406 350 336 405 256 440C176 405 106 350 106 260Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="512" height="512" rx="112" fill="url(#os-bg)"/>
+  <circle cx="256" cy="256" r="236" fill="url(#os-glow)"/>
+
+  <g transform="translate(256 258) scale(0.84) translate(-256 -263)">
+    <!-- emblem:start -->
+    <path d="M106 86H166V126H226V86H286V126H346V86H406V260C406 350 336 405 256 440C176 405 106 350 106 260Z" fill="#0d150f" stroke="#0d150f" stroke-width="44" stroke-linejoin="round"/>
+    <path d="M106 86H166V126H226V86H286V126H346V86H406V260C406 350 336 405 256 440C176 405 106 350 106 260Z" fill="url(#os-shield)"/>
+    <g clip-path="url(#os-shield-clip)">
+      <rect x="256" y="60" width="180" height="400" fill="#08100a" opacity="0.24"/>
+      <path d="M96 118L416 118L416 150L96 150Z" fill="#0b130d" opacity="0.18"/>
+    </g>
+    <path d="M106 86H166V126H226V86H286V126H346V86H406V260C406 350 336 405 256 440C176 405 106 350 106 260Z" transform="translate(256 263) scale(0.82) translate(-256 -263)" fill="none" stroke="#d8ef8a" stroke-opacity="0.28" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M106 86H166V126H226V86H286V126H346V86H406V260C406 350 336 405 256 440C176 405 106 350 106 260Z" fill="none" stroke="url(#os-rim)" stroke-width="22" stroke-linejoin="round"/>
+    <path d="M241 151L299 151L266 250L307 250L224 398L248 285L207 285Z" fill="#0d150f" stroke="#0d150f" stroke-width="22" stroke-linejoin="round"/>
+    <path d="M241 151L299 151L266 250L307 250L224 398L248 285L207 285Z" fill="url(#os-bolt)"/>
+    <path d="M241 151L270 151L238 262L207 285Z" fill="#fffbe0" opacity="0.35"/>
+    <!-- emblem:end -->
+  </g>
+</svg>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Flat fallback of the icon background gradient (the adaptive icon uses @mipmap/ic_launcher_background). -->
+    <color name="ic_launcher_background">#1F3326</color>
+    <!-- Dark game background (--bg-dark in src/ui/styles.css); used by the splash and behind the WebView. -->
+    <color name="splash_background">#14202C</color>
+</resources>
