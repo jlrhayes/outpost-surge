@@ -33,12 +33,51 @@ genre. All names, characters, art (procedural low-poly, built in code) and sound
 
 ## Features
 
-<!-- The lead fills in the details as modules land. -->
-- Survival Runs: steer your squad through good and bad gates, shoot barrels for upgrades, beat the boss.
-- Outpost building: HQ-gated upgrades, resource producers, construction queues.
-- Heroes & squads: recruit, level up, and build formations with type counters.
-- Campaign & world map: auto-battle stages, zombie hordes, gathering and marches.
-- _More to come..._
+**Special Ops squad runs.** Drag to steer a crowd of soldiers down a zombie-infested road while they fire
+automatically. Pick blue `+`/`×` gates and dodge red `−`/`÷` ones. Every bullet that hits a gate raises its
+number, so a red gate can be shot until it turns blue. Crack barrels and crates for soldiers, weapon upgrades,
+fire rate and helper vehicles. Survive sprinters, brutes, spitters and lane hazards, then take down a boss.
+There are 48 levels in 6 chapters, and surviving soldiers join your army.
+
+**Outpost building.**
+- Upgrade the Command Post, which caps every other building and needs two specific buildings at the level
+  below. Around it are farms, quarries, refineries, barracks, parade yards, hospitals, a research lab,
+  type-specialist workshops and more.
+- Upgrades are timed with builder queues, a free-finish window, speed-ups and AI ally helps.
+- Tap bubbles to collect production.
+- Every building has three visual upgrade tiers.
+
+**District campaign.** A ring of zombie-held city blocks surrounds your base. Clear them one at a time in
+auto-battles to unlock land and features. Every 5th district is a boss, and a loot truck gathers idle rewards.
+
+**Heroes and squads.**
+- 24 original heroes with procedurally generated portraits, in three types (tank, aircraft, missile) and
+  three rarities (SR, SSR, UR).
+- Each hero has three skills and four gear slots, and can gain levels (capped by the Command Post) and stars
+  (from shards).
+- Recruit with tickets or diamonds. There is a pity counter and duplicates become shards.
+- Five-slot formations (2 front, 3 back) with a same-type bonus. The counter triangle (tank > missile >
+  aircraft > tank) matters against typed bosses and rivals.
+- Heroes lead soldiers of tiers T1–T10 that you train, heal and lose.
+
+**World map.**
+- A procedurally generated wasteland with zombie hordes by level, resource tiles and rival outposts that grow
+  and sometimes raid you.
+- Marches travel in real time, and battle reports come with replays.
+- Stamina with free refills, a radar mission board, and shields.
+
+**Guidance and goals.**
+- Chapter quests with a pointing-hand tutorial and a "Go" button.
+- Daily tasks with activity chests.
+- A 24-node research tree.
+- A welcome-back summary and a single headline **Power** number.
+
+**Made for phones.**
+- Portrait, touch-first, safe-area aware.
+- Works offline, autosaves, and progresses while you're away.
+- Android back button support.
+- Automatic graphics-quality detection.
+- About 350 KB gzipped, with no external assets: all models, icons and sounds are generated in code.
 
 ## Development
 
@@ -103,7 +142,8 @@ The APK `versionName` comes from the tag (or `<package.json version>-build.<run>
    Or add them under Settings > Secrets and variables > Actions. `ANDROID_KEY_PASSWORD` is optional (defaults
    to the keystore password). Back up `release.p12` and its password somewhere private, then delete the local
    copies. Never commit them.
-   Without these secrets the workflow still succeeds but signs with a throwaway debug key (with a warning).
+   Without these secrets, `main` builds still succeed (signed with a throwaway debug key, with a warning), but
+   tagged releases fail on purpose so an update can never ship with a different key.
 
 ## License
 

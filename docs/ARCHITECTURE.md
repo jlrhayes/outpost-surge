@@ -99,6 +99,7 @@ You may create new files inside your own folders freely (e.g. `src/modes/runner/
 | `formation` | heroes | `{ squadId?: number }` | Assign 5 heroes (2 front / 3 back) to squads. Opened from HUD and the Drill Ground. |
 | `campaign` | heroes | — | Auto-battle stage list + idle (AFK) rewards. |
 | `runnerLevels` | runner | — | Survival Run level select. |
+| `outpostDefense` | world | — | Incoming rival raids, defence reports, shields. |
 
 ### 3D engine (`src/three/engine.ts`)
 - One shared `WebGLRenderer`. Each mode implements `GameMode { scene, camera, enter(params), exit(), update(dt, t), resize(w,h) }`.
