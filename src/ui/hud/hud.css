@@ -42,6 +42,12 @@
 .res-pill:active {
   transform: scale(0.96);
 }
+/* taller invisible hit area (the pill stays slim) */
+.res-pill::after {
+  content: '';
+  position: absolute;
+  inset: -5px 0 -4px;
+}
 .res-pill-icon {
   position: absolute;
   left: -5px;
@@ -293,8 +299,9 @@
 .qt-wrap {
   position: absolute;
   left: var(--hud-left);
-  bottom: calc(var(--safe-bottom) + var(--bottom-h) + 14px);
-  width: min(64vw, 270px);
+  bottom: calc(var(--safe-bottom) + var(--bottom-h) + 10px);
+  /* leave room for the World button on the right at every phone width */
+  width: min(72vw, 300px, calc(100vw - var(--hud-left) - var(--hud-side) - 92px));
   pointer-events: none;
 }
 .qt {
@@ -319,7 +326,8 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 8px;
+  min-height: 24px;
+  padding: 2px 6px 2px 8px;
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.5px;
@@ -328,15 +336,39 @@
   background: linear-gradient(90deg, rgba(255, 207, 58, 0.2), transparent);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
+.qt-head-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .qt-count {
-  margin-left: auto;
   color: var(--text-dim);
+}
+/* Reward chips live in the header so the objective text gets the full row width. */
+.qt-reward {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.qt-reward-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--font-num);
+  font-size: 12px;
+  color: #fff;
+  text-shadow: var(--text-stroke);
 }
 .qt-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 6px 7px 7px;
+  padding: 5px 6px 6px 7px;
 }
 .qt-icon {
   flex-shrink: 0;
@@ -365,13 +397,13 @@
   line-height: 1.15;
   text-shadow: 0 1px 0 #000;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .qt-progress {
   position: relative;
-  height: 13px;
+  height: 15px;
   border-radius: 7px;
   background: #06101a;
   border: 1px solid var(--outline);
@@ -391,17 +423,42 @@
 .qt-progress-label {
   position: absolute;
   inset: 0;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
-  line-height: 11px;
+  line-height: 13px;
   text-align: center;
   text-shadow: var(--text-stroke);
 }
-.qt-reward {
-  flex-shrink: 0;
+/* "Next HQ needs: ..." lookahead line */
+.qt-next {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 40px;
+  padding: 3px 8px 4px;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.28);
+  color: #ffc9a0;
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
 }
-.qt-reward .tile-count {
-  font-size: 9px;
+.qt-next-text {
+  min-width: 0;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.qt-next b {
+  color: #fff;
+}
+.qt-next:active {
+  background: rgba(0, 0, 0, 0.45);
 }
 .qt-btn {
   flex-shrink: 0;
@@ -577,8 +634,8 @@
 /* ---------------- Narrow / short screens ---------------- */
 @media (max-width: 380px) {
   .nav-label {
-    font-size: 10px;
-    letter-spacing: -0.2px;
+    font-size: 11px;
+    letter-spacing: -0.3px;
   }
   .nav-btn-icon {
     width: 40px;

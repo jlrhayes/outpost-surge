@@ -2,12 +2,14 @@
 // upgrade arrows, plot "+" pads, district banner, vehicle labels, selection actions, builder queue).
 // Elements are positioned every frame by BaseMode via anchors (see ./anchors.ts) — no per-frame re-render.
 import './base.css';
+import { useEffect } from 'preact/hooks';
 import { useGame, type GameState } from '../../core/store';
 import { clock } from '../../core/tick';
 import { focusBuilding, openScreen, toast } from '../../core/nav';
 import { sfx } from '../../core/audio';
 import { fmt, fmtDuration } from '../../core/format';
-import { isUnlocked, unlockHint } from '../../core/unlocks';
+import { districtsCleared, isUnlocked } from '../../core/unlocks';
+import { lockHint } from '../../ui/components/lockHint';
 import type { BuildingState } from '../../state/base';
 import { Icon } from '../../ui/components/Icon';
 import { BUILDINGS, DISTRICTS, PLOTS, buildingName } from '../../data/buildings';
@@ -21,15 +23,20 @@ import {
   upgradeBlock,
 } from '../../systems/buildings';
 import { anchorRef, sceneBusy, selection, shownCleared, zoomedOut, layoutVersion } from './anchors';
+import { startHudSafeArea } from './hudSafeArea';
 import { doCollect, doFreeFinish, openSpeedup } from './actions';
 import { buildingActions } from './buildingActions';
+import { idleLoot, idleLootReady } from '../../systems/campaign';
 import { ArrowUp, Crate, Hammer, Jeep, Lock, Plus, Skull, Swords } from './icons';
 
-const IDLE_CAP_MS = 8 * 3600 * 1000;
-
-function Anchor(props: { k: string; class?: string; children: preact.ComponentChildren }) {
+/**
+ * `clamp`: keep this label clear of HUD panels (pushed out of their way, see ./hudSafeArea.ts). 'cta' labels also
+ * reserve their spot; 'yield' labels move out of the way of cta labels.
+ */
+function Anchor(props: { k: string; class?: string; clamp?: true | 'cta' | 'yield'; children: preact.ComponentChildren }) {
+  const clamp = props.clamp === true ? '' : props.clamp;
   return (
-    <div class={'bo-anchor ' + (props.class ?? '')} ref={anchorRef(props.k)}>
+    <div class={'bo-anchor ' + (props.class ?? '')} ref={anchorRef(props.k)} data-clamp={clamp}>
       {props.children}
     </div>
   );
@@ -61,6 +68,7 @@ function TopMarker({ s, b, t }: { s: GameState; b: BuildingState; t: number }) {
         {free && (
           <button
             class="bo-free interactive"
+            data-guide={'free:' + b.type}
             onClick={() => {
               sfx.click();
               doFreeFinish(b.uid);
@@ -90,7 +98,7 @@ function TopMarker({ s, b, t }: { s: GameState; b: BuildingState; t: number }) {
   }
   if (b.level === 0) {
     return (
-      <button class="bo-build interactive" onClick={() => openScreen('buildingPanel', { uid: b.uid })}>
+      <button class="bo-build interactive" data-guide={'build:' + b.type} onClick={() => openScreen('buildingPanel', { uid: b.uid })}>
         <Hammer size={20} />
         <span>Build</span>
       </button>
@@ -204,8 +212,47 @@ function BuilderQueue({ s, t }: { s: GameState; t: number }) {
   return <div class="bo-builders">{slots}</div>;
 }
 
+/** Idle loot truck: locked until District 1 is cleared, then shows the accrued loot (or FULL). */
+function LootTruckLabel({ s, t }: { s: GameState; t: number }) {
+  if (districtsCleared(s) <= 0) {
+    return (
+      <button
+        class="bo-veh loot locked interactive"
+        onClick={() => {
+          sfx.click();
+          toast('Clear District 1 to start collecting loot', 'info');
+          openScreen('campaign');
+        }}
+      >
+        <Lock size={16} />
+        <span>Loot Truck</span>
+      </button>
+    );
+  }
+  const loot = idleLoot(s, t);
+  const cur = loot.reward.currencies ?? {};
+  // Show the biggest accrued resource so the label reads as "loot waiting", not as a clock.
+  let top: [string, number] | null = null;
+  for (const [k, v] of Object.entries(cur)) if (v && (!top || v > top[1])) top = [k, v];
+  return (
+    <button class={'bo-veh loot interactive' + (idleLootReady(s, t) ? ' ready' : '')} onClick={() => openScreen('campaign')}>
+      <Crate size={20} />
+      <span>Loot Truck</span>
+      {loot.capped ? (
+        <span class="bo-veh-sub full">FULL</span>
+      ) : top ? (
+        <span class="bo-veh-sub">
+          <Icon name={top[0]} size={14} />
+          {fmt(top[1])}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export function BaseOverlay() {
   const s = useGame();
+  useEffect(() => startHudSafeArea(), []);
   const t = clock.value;
   const sel = selection.value;
   const far = zoomedOut.value;
@@ -215,13 +262,12 @@ export function BaseOverlay() {
   const selUid = sel && sel.startsWith('b:') ? sel.slice(2) : null;
   const occupied = new Set(s.base.buildings.map((b) => b.plot));
   const next = DISTRICTS[shown];
-  const idleMs = Math.min(IDLE_CAP_MS, Math.max(0, t - (s.heroes.campaign.idleClaimedAt ?? t)));
   const runnerOk = isUnlocked(s, 'runner');
 
   return (
     <div class={'bo-root' + (busy ? ' busy' : '')}>
       {s.base.buildings.map((b) => (
-        <Anchor key={'b' + b.uid} k={'b:' + b.uid} class="bo-top">
+        <Anchor key={'b' + b.uid} k={'b:' + b.uid} class="bo-top" clamp>
           <TopMarker s={s} b={b} t={t} />
         </Anchor>
       ))}
@@ -243,15 +289,20 @@ export function BaseOverlay() {
       {PLOTS.map((p) =>
         (p.kind === 'core' || p.kind === 'res') && !occupied.has(p.id) && p.district <= shown && plotHasBuildable(s, p.id) ? (
           <Anchor key={'p' + p.id} k={'p:' + p.id} class="bo-top">
-            <button class={'bo-plot interactive ' + p.kind} onClick={() => openScreen('buildMenu', { plot: p.id })} aria-label="Build here">
+            <button
+              class={'bo-plot interactive ' + p.kind}
+              data-guide={'plot:' + p.kind}
+              onClick={() => openScreen('buildMenu', { plot: p.id })}
+              aria-label="Build here"
+            >
               <Plus size={22} />
             </button>
           </Anchor>
         ) : null,
       )}
       {next && (
-        <Anchor key={'d' + next.id} k={'d:' + next.id} class="bo-top">
-          <button class="bo-district interactive" onClick={() => openScreen('campaign')}>
+        <Anchor key={'d' + next.id} k={'d:' + next.id} class="bo-top" clamp="cta">
+          <button class="bo-district interactive" data-guide="district" onClick={() => openScreen('campaign')}>
             <div class="bo-district-title">
               <Skull size={18} /> District {next.id}
             </div>
@@ -261,12 +312,12 @@ export function BaseOverlay() {
           </button>
         </Anchor>
       )}
-      <Anchor k="v:specops" class="bo-top">
+      <Anchor k="v:specops" class="bo-top" clamp="yield">
         <button
           class={'bo-veh interactive' + (runnerOk ? '' : ' locked')}
           onClick={() => {
             if (runnerOk) openScreen('runnerLevels');
-            else toast(`Special Ops: ${unlockHint('runner')}`, 'bad');
+            else toast(`Special Ops: ${lockHint('runner')}`, 'bad');
           }}
         >
           {runnerOk ? <Jeep size={20} /> : <Lock size={16} />}
@@ -274,12 +325,8 @@ export function BaseOverlay() {
           {runnerOk && <span class="bo-veh-sub">Lv {s.runner.level}</span>}
         </button>
       </Anchor>
-      <Anchor k="v:loot" class="bo-top">
-        <button class={'bo-veh loot interactive' + (idleMs >= 10 * 60 * 1000 ? ' ready' : '')} onClick={() => openScreen('campaign')}>
-          <Crate size={20} />
-          <span>Loot Truck</span>
-          <span class="bo-veh-sub">{idleMs >= IDLE_CAP_MS ? 'FULL' : fmtDuration(idleMs)}</span>
-        </button>
+      <Anchor k="v:loot" class="bo-top" clamp="yield">
+        <LootTruckLabel s={s} t={t} />
       </Anchor>
       {selUid && !busy && <SelectionStrip s={s} uid={selUid} />}
       <BuilderQueue s={s} t={t} />

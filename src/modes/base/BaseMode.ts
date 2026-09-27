@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { engine, type GameMode } from '../../three/engine';
 import { game, mutate, version } from '../../core/store';
 import { now } from '../../core/tick';
-import { baseFocus, openScreen, screens, toast, type BaseFocusRequest } from '../../core/nav';
+import { baseFocus, openScreen, route, screens, toast, type BaseFocusRequest } from '../../core/nav';
 import { on } from '../../core/events';
 import { sfx } from '../../core/audio';
 import { districtsCleared, isUnlocked, unlockHint } from '../../core/unlocks';
@@ -290,7 +290,7 @@ export class BaseMode implements GameMode {
       this.fx.ring(v.plot.x, v.plot.z, v.footprint * 0.9, 0xffe07a, 1.4);
       setTimeout(() => this.fx.ring(v.plot.x, v.plot.z, v.footprint * 0.9, 0xffe07a, 1.4), 450);
       this.views.bounce(uid);
-      if (req.openPanel) setTimeout(() => openScreen('buildingPanel', { uid }), 650);
+      if (req.openPanel) this.afterFocus(req, () => openScreen('buildingPanel', { uid }));
       return;
     }
     if (req.type) {
@@ -309,8 +309,21 @@ export class BaseMode implements GameMode {
       this.rig.focusOn(p.x, p.z + 2, Math.min(this.rig.dist, 56));
       this.fx.ring(p.x, p.z, 3, 0x8fe3ff, 1.4);
       setTimeout(() => this.fx.ring(p.x, p.z, 3, 0x8fe3ff, 1.4), 450);
-      if (req.openPanel) setTimeout(() => openScreen('buildMenu', { plot: p.id, highlight: type }), 650);
+      if (req.openPanel) this.afterFocus(req, () => openScreen('buildMenu', { plot: p.id, highlight: type }));
     }
+  }
+
+  /**
+   * Runs a focus request's follow-up (opening a panel) once the camera pan has played, but only if the player is
+   * still in the base, no newer focus request replaced this one and nothing else was opened meanwhile.
+   */
+  private afterFocus(req: BaseFocusRequest, fn: () => void): void {
+    setTimeout(() => {
+      if (!this.active || route.peek().mode !== 'base') return;
+      if (baseFocus.peek()?.t !== req.t) return;
+      if (screens.peek().length > 0) return;
+      fn();
+    }, 650);
   }
 
   // ---- district reveal ----

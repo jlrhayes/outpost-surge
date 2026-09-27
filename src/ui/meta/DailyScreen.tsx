@@ -3,7 +3,8 @@ import { game, useGame, type GameState } from '../../core/store';
 import { clock } from '../../core/tick';
 import { fmt, fmtDuration } from '../../core/format';
 import { closeAllScreens, goTo, openScreen, route, toast } from '../../core/nav';
-import { isUnlocked, unlockHint } from '../../core/unlocks';
+import { isUnlocked } from '../../core/unlocks';
+import { lockHint } from '../components/lockHint';
 import { buildingsOf } from '../../systems/buildings';
 import {
   activityPoints,
@@ -60,7 +61,7 @@ export function DailyScreen() {
       <Screen title="Daily Tasks" icon="calendar">
         <div class="empty-state">
           <Icon name="lock" size={64} />
-          <div>{unlockHint('daily')}</div>
+          <div>{lockHint('daily')}</div>
         </div>
       </Screen>
     );

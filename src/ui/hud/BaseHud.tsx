@@ -7,20 +7,24 @@ import { useGame, type GameState } from '../../core/store';
 import { clock } from '../../core/tick';
 import { totalPower } from '../../core/bonuses';
 import { fmt } from '../../core/format';
-import { goTo, openScreen, screens, toast } from '../../core/nav';
-import { isUnlocked, unlockHint, type Feature } from '../../core/unlocks';
+import { focusBuilding, goTo, openScreen, screens, toast } from '../../core/nav';
+import { districtsCleared, isUnlocked, type Feature } from '../../core/unlocks';
+import { lockHint } from '../components/lockHint';
 import { sfx } from '../../core/audio';
-import { hqLevel } from '../../systems/buildings';
+import type { BuildingType } from '../../core/types';
+import { buildingLevel, hqLevel } from '../../systems/buildings';
+import { MAX_BUILDING_LEVEL, buildingName, hqPrereqs } from '../../data/buildings';
 import { claimChapter, claimQuest, currentChapter, questGo, questsClaimable, trackedQuest } from '../../systems/quests';
 import { dailyClaimable } from '../../systems/daily';
 import { researchIdle } from '../../systems/research';
+import { anyHeroUpgradable } from '../../systems/heroes';
 import { Icon } from '../components/Icon';
 import { Avatar } from '../components/Avatar';
 import { AnimatedNumber, fmtFull } from '../components/AnimatedNumber';
 import { ResourceBar } from '../components/ResourceBar';
 import { RedDot } from '../components/common';
 import { rewardEntries } from '../components/RewardList';
-import { RewardTile } from '../components/ItemIcon';
+import { rewardEntryChip } from '../components/ItemIcon';
 import { bagHasOpenable } from '../meta/BagScreen';
 import { questIcon } from '../meta/QuestsScreen';
 import { welcome } from './welcome';
@@ -66,6 +70,34 @@ function Profile(props: { s: GameState }) {
 
 // ---------------------------------------------------------------- quest tracker
 
+/** Unmet prerequisites of the next HQ level (empty when none, when maxed or while the HQ is upgrading). */
+function nextHqNeeds(s: GameState): { type: BuildingType; level: number }[] {
+  const hq = s.base.buildings.find((b) => b.type === 'hq');
+  if (!hq || hq.upgradeEndsAt !== null || hq.level >= MAX_BUILDING_LEVEL) return [];
+  return hqPrereqs(hq.level + 1).filter((r) => buildingLevel(s, r.type) < r.level);
+}
+
+/** "Next HQ needs: ..." lookahead line so players see what gates their next HQ level. Tap = go to the first one. */
+function HqLookahead(props: { s: GameState }) {
+  const needs = nextHqNeeds(props.s);
+  if (!needs.length) return null;
+  return (
+    <button
+      class="qt-next"
+      onClick={(e) => {
+        e.stopPropagation();
+        sfx.click();
+        focusBuilding({ type: needs[0].type, openPanel: true });
+      }}
+    >
+      <Icon name="lock" size={13} />
+      <span class="qt-next-text">
+        {buildingName('hq')} Lv {needs[0].level + 1} needs: <b>{needs.map((r) => `${buildingName(r.type)} Lv ${r.level}`).join(', ')}</b>
+      </span>
+    </button>
+  );
+}
+
 function QuestTracker(props: { s: GameState }) {
   const { s } = props;
   const cv = currentChapter(s);
@@ -74,7 +106,10 @@ function QuestTracker(props: { s: GameState }) {
     return (
       <div class="qt done interactive">
         <div class="qt-head">
-          <Icon name="tasks" size={16} /> Chapter {cv.chapter.index + 1} · {cv.chapter.title}
+          <Icon name="tasks" size={16} />
+          <span class="qt-head-title">
+            Chapter {cv.chapter.index + 1} · {cv.chapter.title}
+          </span>
         </div>
         <div class="qt-row">
           <span class="qt-icon bounce">
@@ -95,7 +130,7 @@ function QuestTracker(props: { s: GameState }) {
     );
   }
   if (!q) return null;
-  const first = rewardEntries(q.def.reward)[0];
+  const chips = rewardEntries(q.def.reward).slice(0, 2).map(rewardEntryChip);
   return (
     <div
       class={'qt interactive ' + (q.done ? 'done' : '')}
@@ -105,10 +140,21 @@ function QuestTracker(props: { s: GameState }) {
       }}
     >
       <div class="qt-head">
-        <Icon name="tasks" size={16} /> Chapter {cv.chapter.index + 1}
+        <Icon name="tasks" size={16} />
+        <span class="qt-head-title">Chapter {cv.chapter.index + 1}</span>
         <span class="qt-count">
           {cv.claimedCount}/{cv.quests.length}
         </span>
+        {chips.length > 0 && (
+          <span class="qt-reward" aria-label="Reward">
+            {chips.map((c, i) => (
+              <span class="qt-reward-chip" key={i}>
+                <Icon name={c.icon} size={15} />
+                {c.text}
+              </span>
+            ))}
+          </span>
+        )}
       </div>
       <div class="qt-row">
         <span class="qt-icon">
@@ -123,11 +169,6 @@ function QuestTracker(props: { s: GameState }) {
             </span>
           </span>
         </span>
-        {first && (
-          <span class="qt-reward">
-            <RewardTile entry={first} size={34} />
-          </span>
-        )}
         {q.done ? (
           <button
             class="qt-btn claim"
@@ -151,6 +192,7 @@ function QuestTracker(props: { s: GameState }) {
           </button>
         )}
       </div>
+      <HqLookahead s={s} />
     </div>
   );
 }
@@ -182,7 +224,8 @@ const SIDE: SideDef[] = [
     icon: 'skull',
     feature: 'campaign',
     open: () => openScreen('campaign'),
-    dot: (s, t) => t - s.heroes.campaign.idleClaimedAt > 60 * 60_000,
+    // Loot truck has been filling for an hour (only once it runs, i.e. after District 1).
+    dot: (s, t) => districtsCleared(s) > 0 && t - s.heroes.campaign.idleClaimedAt > 60 * 60_000,
   },
   {
     id: 'recruit',
@@ -217,7 +260,7 @@ function SideButton(props: { d: SideDef; s: GameState; t: number }) {
       onClick={() => {
         if (locked) {
           sfx.error();
-          toast(unlockHint(d.feature!), 'bad');
+          toast(lockHint(d.feature!), 'bad');
           return;
         }
         sfx.click();
@@ -307,14 +350,14 @@ export function BaseHud() {
 
       <div class="bottom-bar">
         <NavButton icon="tasks" label="Tasks" onClick={() => openScreen('quests')} dot={claimable} glow={claimable > 0} />
-        <NavButton icon="helmet" label="Heroes" onClick={() => openScreen('heroes')} />
+        <NavButton icon="helmet" label="Heroes" onClick={() => openScreen('heroes')} dot={anyHeroUpgradable(s)} />
         <NavButton icon="bag" label="Bag" onClick={() => openScreen('bag')} dot={bagHasOpenable(s)} />
         <NavButton
           icon="flask"
           label="Research"
           locked={!researchOpen}
           dot={researchIdle(s)}
-          onClick={() => (researchOpen ? openScreen('research') : toast(unlockHint('research'), 'bad'))}
+          onClick={() => (researchOpen ? openScreen('research') : toast(lockHint('research'), 'bad'))}
         />
         <NavButton icon="gear" label="Settings" onClick={() => openScreen('settings')} />
       </div>
@@ -324,7 +367,7 @@ export function BaseHud() {
         onClick={() => {
           if (!worldOpen) {
             sfx.error();
-            toast(unlockHint('world'), 'bad');
+            toast(lockHint('world'), 'bad');
             return;
           }
           sfx.click();

@@ -12,6 +12,7 @@ import { HospitalScreen } from './HospitalScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { WelcomeBackScreen } from '../hud/WelcomeBack';
+import { FeatureUnlockScreen } from './FeatureUnlockScreen';
 
 export const metaScreens: Record<string, ComponentType<any>> = {
   rewards: RewardsScreen,
@@ -26,4 +27,6 @@ export const metaScreens: Record<string, ComponentType<any>> = {
   /** Generic yes/no dialog: openScreen('confirm', { title, text, onConfirm, ... }) — see ConfirmModal.tsx. */
   confirm: ConfirmModal,
   welcomeBack: WelcomeBackScreen,
+  /** "New feature unlocked!" popup: { features: Feature[] } (opened by the unlock watcher in init/meta.ts). */
+  featureUnlocked: FeatureUnlockScreen,
 };

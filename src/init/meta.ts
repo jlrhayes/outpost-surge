@@ -1,16 +1,19 @@
 // OWNER: meta agent. Side-effect registrations for this module, imported once at startup:
 // tickers (training/healing, research, daily reset), bonus & power providers, lifetime stat counters,
-// daily-task wiring and the welcome-back capture.
+// daily-task wiring, the welcome-back capture, "New feature unlocked" popups and the onboarding guide hand.
 import { effect } from '@preact/signals';
-import { mutate } from '../core/store';
+import { game, mutate, type GameState } from '../core/store';
 import { registerTicker } from '../core/tick';
+import { isUnlocked, type Feature } from '../core/unlocks';
 import { registerBonusProvider, registerPowerProvider } from '../core/bonuses';
 import { on, type GameEvents } from '../core/events';
-import { route } from '../core/nav';
+import { openScreen, route, screens } from '../core/nav';
+import { sceneBusy } from '../modes/base/anchors';
 import { troopsPower, troopsTicker } from '../systems/troops';
 import { researchBonuses, researchPower, researchTicker } from '../systems/research';
 import { dailyTicker, wireDailyTasks } from '../systems/daily';
-import { startWelcomeCapture } from '../ui/hud/welcome';
+import { startWelcomeCapture, welcome } from '../ui/hud/welcome';
+import { startGuide } from '../ui/hud/guide';
 
 registerTicker('meta:troops', troopsTicker);
 registerTicker('meta:research', researchTicker);
@@ -58,8 +61,9 @@ for (const [ev, fn] of Object.entries(STATS)) {
   });
 }
 
-// World-map visits (quest "Visit the World Map").
+// World-map visits (quest "Visit the World Map") + when the player last arrived in the base.
 let lastMode = route.peek().mode;
+let baseSince = lastMode === 'base' ? performance.now() : Infinity;
 effect(() => {
   const m = route.value.mode;
   if (m === 'world' && lastMode !== 'world') {
@@ -69,8 +73,39 @@ effect(() => {
       }),
     );
   }
+  if (m !== lastMode) baseSince = m === 'base' ? performance.now() : Infinity;
   lastMode = m;
+});
+
+// ---- "New feature unlocked" popups: shown once per feature, in the base, when nothing else is on screen ----
+const POPUP_FEATURES: Feature[] = ['runner', 'daily', 'recruit', 'world', 'radar', 'research', 'squad2', 'squad3', 'squad4'];
+
+function canShowUnlockPopup(): boolean {
+  return (
+    game.runner.introDone &&
+    route.peek().mode === 'base' &&
+    screens.peek().length === 0 &&
+    // let a district-reveal cinematic and the welcome-back summary go first
+    !sceneBusy.peek() &&
+    !welcome.peek() &&
+    performance.now() - baseSince > 1500
+  );
+}
+
+registerTicker('meta:unlocks', (s: GameState) => {
+  const seen = s.meta.unlocksSeen;
+  if (!seen.includes('_init')) {
+    // First run on this save: features that are already open never pop up.
+    seen.push('_init', ...POPUP_FEATURES.filter((f) => isUnlocked(s, f)));
+    return true;
+  }
+  const fresh = POPUP_FEATURES.filter((f) => !seen.includes(f) && isUnlocked(s, f));
+  if (!fresh.length || !canShowUnlockPopup()) return false;
+  seen.push(...fresh);
+  queueMicrotask(() => openScreen('featureUnlocked', { features: fresh }));
+  return true;
 });
 
 wireDailyTasks();
 startWelcomeCapture();
+startGuide();

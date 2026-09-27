@@ -40,6 +40,23 @@
   padding: 0;
   pointer-events: auto;
 }
+/* Invisible enlarged hit areas: small world labels stay compact but get >= 44 px touch targets. */
+.bo-plot::after,
+.bo-build::after,
+.bo-veh::after,
+.bo-bq::after,
+.bo-free::after,
+.bo-timer::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+}
+.bo-free,
+.bo-timer,
+.bo-bq {
+  position: relative;
+}
 
 /* Collect bubble */
 .bo-bubble {
@@ -70,13 +87,14 @@
 }
 .bo-full {
   position: absolute;
-  top: -9px;
+  top: -11px;
   left: 50%;
   transform: translateX(-50%);
   background: #ec4b3c;
   color: #fff;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
+  line-height: 1.1;
   padding: 1px 5px;
   border-radius: 6px;
   letter-spacing: 0.5px;
@@ -137,7 +155,8 @@
   transition: width 0.9s linear;
 }
 .bo-free {
-  padding: 4px 12px !important;
+  min-height: 30px;
+  padding: 4px 14px !important;
   border-radius: 9px;
   background: linear-gradient(#7ae070, #4cc24a 50%, #23801f);
   color: #fff;
@@ -182,7 +201,8 @@
   display: flex !important;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px 6px 9px !important;
+  min-height: 36px;
+  padding: 6px 13px 6px 10px !important;
   border-radius: 20px;
   background: linear-gradient(#70c0ff, #3a9cf0 50%, #1a5fa8);
   color: #fff;
@@ -195,8 +215,8 @@
 
 /* Empty plot */
 .bo-plot {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -293,7 +313,8 @@
   display: flex !important;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px 3px 5px !important;
+  min-height: 32px;
+  padding: 3px 9px 3px 6px !important;
   border-radius: 11px;
   background: rgba(14, 24, 36, 0.86);
   border: 1.5px solid #ffb04a !important;
@@ -315,10 +336,19 @@
   box-shadow: 0 0 0 3px rgba(245, 197, 66, 0.4), 0 3px 8px rgba(0, 0, 0, 0.4);
 }
 .bo-veh-sub {
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
   font-weight: 800;
   color: #ffd46a;
   font-variant-numeric: tabular-nums;
+}
+.bo-veh-sub.full {
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #ec4b3c;
+  color: #fff;
 }
 
 /* Selection strip */
@@ -413,17 +443,19 @@
   top: calc(var(--safe-top) + 118px);
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
   pointer-events: none;
+  /* HUD chrome: paints above world-projected labels */
+  z-index: 2;
 }
 .bo-bq {
   display: flex !important;
   align-items: center;
   gap: 4px;
-  min-width: 70px;
-  height: 28px;
-  padding: 0 8px 0 6px !important;
-  border-radius: 14px;
+  min-width: 72px;
+  height: 34px;
+  padding: 0 10px 0 8px !important;
+  border-radius: 17px;
   background: rgba(14, 24, 36, 0.8);
   border: 1.5px solid #4d7aa3 !important;
   color: #fff;

@@ -5,7 +5,6 @@ import { fmt } from '../../core/format';
 import type { Reward } from '../../core/types';
 import type { GameState } from '../../core/store';
 import { Icon } from '../../ui/components/Icon';
-import { SCREENS } from '../../ui/screens';
 import { RewardList as KitRewardList } from '../../ui/components/RewardList';
 import { rewardSummary, scaleReward } from '../../systems/items';
 import { isEmptyReward } from '../../core/economy';
@@ -13,9 +12,16 @@ import { safeSquadPower, squadMarch, marchStatusLabel } from '../../systems/worl
 import { squadReady } from '../../systems/heroes';
 import { sfx } from '../../core/audio';
 
-/** True if another module registered this screen id (e.g. 'rewards', 'speedup', 'formation'). */
+/**
+ * Screen ids other modules implement per the contract in docs/ARCHITECTURE.md. Deliberately NOT read from the
+ * `SCREENS` registry: importing `ui/screens` here formed a cycle (screens → world screens → sheets → parts →
+ * screens) that crashed boot on HMR.
+ */
+const CONTRACT_SCREENS = new Set(['rewards', 'speedup', 'bag', 'quests', 'daily', 'research', 'formation', 'heroes', 'heroDetail', 'recruit', 'campaign']);
+
+/** True if another module provides this screen id (e.g. 'rewards', 'speedup', 'formation'). */
 export function hasScreen(id: string): boolean {
-  return !!SCREENS[id];
+  return CONTRACT_SCREENS.has(id);
 }
 
 /** Shows the meta "You received" popup when available, else a toast. Caller grants first. */

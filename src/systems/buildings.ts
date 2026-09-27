@@ -557,7 +557,6 @@ export function collectBuilding(uid: string): { resource: CurrencyId; amount: nu
     grantIn(s, { currencies: { [res]: amount } });
     bb.stored = avail - amount;
     bb.collectedAt = t;
-    addStat(s, 'collects');
   });
   emit('resource:collected', { resource: res, amount });
   return { resource: res, amount };
