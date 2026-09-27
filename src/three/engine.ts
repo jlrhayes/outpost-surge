@@ -45,7 +45,7 @@ class Engine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = game.settings.quality === 'high';
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.applyPixelRatio();
     window.addEventListener('resize', () => this.onResize());
     this.onResize();

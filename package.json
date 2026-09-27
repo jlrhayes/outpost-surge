@@ -8,17 +8,26 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "icons": "node scripts/gen-icons.mjs",
+    "keystore": "node scripts/gen-keystore.mjs",
+    "android:sync": "npm run build && cap sync android",
+    "android:open": "cap open android"
   },
   "license": "MIT",
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@preact/signals": "^2.11.2",
     "preact": "^10.29.8",
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
     "@preact/preset-vite": "^2.10.6",
     "@types/three": "^0.186.0",
+    "node-forge": "^1.4.0",
+    "sharp": "^0.35.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   }
