@@ -25,7 +25,8 @@ export type BuildingType =
   | 'tankcenter'
   | 'aircenter'
   | 'missilecenter'
-  | 'radar';
+  | 'radar'
+  | 'trainingbase'; // produces heroExp per hour
 
 /**
  * Well-known item ids used across modules. The meta module (src/data/items.ts) owns

@@ -122,30 +122,56 @@ look great behind the same API; code against the API, not the current placeholde
 
 ## Game design baseline (shared numbers — tune within your module, keep the feel)
 
-**Core loop**: Play a Survival Run → earn resources/EXP/tickets → upgrade buildings (HQ gates everything) →
-recruit & level heroes → set formation → push campaign stages and world-map zombie hordes → repeat.
-Early game must be fast and rewarding (first few upgrades take seconds; quests guide every step).
+Read `docs/GAME_REFERENCE.md` (researched mechanics of the genre-defining game, sections 1-9) for detail.
+Match its mechanics and feel; compress timers ~30-100x so HQ 10 takes ~1-2 h of play.
 
-- **Opening**: a brand-new player starts directly in runner level 1 (`goTo('runner', {level: 1, intro: true})`),
-  a short, easy, flashy run. On finishing, set `game.runner.introDone = true`, grant rewards, `goTo('base')`.
-- **HQ gating**: other buildings cannot exceed the HQ level. Upgrading HQ requires some prerequisite
-  buildings (e.g. Wall ≥ current HQ level from HQ 3+). New building types/plots unlock at HQ levels.
-- **Builders**: 2 construction queues. Upgrades with ≤ 3 min remaining can be finished for free.
-- **Timers**: L1→2 about 5–10 s, ~1 min by L5, ~10 min by L10, hours by L15+. Costs grow ~1.35–1.5× per level.
-- **Resources**: food, iron, gold. Farms/iron mines/gold mines produce per hour and hold uncollected output up to
-  a cap (tap to collect). Warehouse protects resources (flavour only in single-player) and raises producer caps.
-- **Hero types & counters**: tank > missile > aircraft > tank (+20% damage vs countered type).
-  Same-type squad bonus: 3 same = +5%, 4 = +10%, 5 = +20% atk/hp/def (tune).
-- **Rarity**: SR (blue), SSR (purple), UR (gold/orange). Recruit rates ~ UR 2% / SSR 18% / SR 80%, UR pity at 50.
-- **Formation**: 5 slots, front row (0-1) targeted first; back row safer. Squad 1 at start, more unlock with
-  Drill Ground / HQ levels (up to 4).
-- **Troops**: tiers 1..10 trained in Barracks (tier unlocks with Barracks level). Each hero in a squad leads
-  troops; squad capacity from Drill Ground level + `squad_capacity` bonus. Troops add HP/ATK to heroes.
-- **World map**: zombie hordes levels 1..N (can attack up to `maxHordeLevel + 1`), costs 10 stamina, stamina max 100
-  regen 1 per 5 min; gather nodes for resources; marches take real travel time.
-- **Runner**: squad count displayed above the crowd; blue (good) gates `+N`/`xN`, red (bad) gates `-N`/`÷N`;
-  shootable barrels/crates give weapon/fire-rate/soldier upgrades; zombie hordes and a boss at the end.
-  Win = boss dead / reach the end with ≥1 soldier. 1–3 stars by survivors.
+**Core loop**: Special Ops runner levels + district battles → resources/EXP/troops → upgrade buildings
+(HQ gates everything) → recruit & level heroes → set formation → clear more districts, fight world-map
+zombies → repeat. One headline **Power** number everywhere. Early game must be fast and rewarding (first
+upgrades take seconds; the chapter quest tracker always tells the player what to do next).
+
+- **Opening**: a brand-new player starts in runner level 1 (`goTo('runner', {level: 1, intro: true})`):
+  short, easy, flashy, ends with a boss. On finishing set `game.runner.introDone = true`, grant rewards,
+  `goTo('base')`. Runner levels are then replayable/progressive from the base ("Special Ops", 8-level chapters).
+- **Runner** (GAME_REFERENCE §1): drag left/right, auto-fire, floating soldier-count label; blue `+N`/`xN`
+  and red `-N`/`÷N` gates, **each bullet hit raises a gate's value by 1** (red can be shot to blue); barrels
+  with HP + reward icon (soldiers, weapon upgrade, helper unit); walkers, fast dogs, brutes, boss with a top HP
+  bar. Win = boss dead/end reached with ≥1 soldier; stars by % of peak kept. **Surviving soldiers become real
+  troops** (`reward.troops` at `bestTroopTier`, max 60/level) plus resources/heroExp.
+- **Districts** (§2.7): the base is surrounded by zombie-infested district blocks. Campaign stage N = district
+  N (`game.heroes.campaign.stage` = next district, `districtsCleared(s)` in `src/core/unlocks.ts`). Heroes module
+  owns stage enemies/battles/rewards (`campaign` screen); base module renders districts (infested → cleared) and
+  unlocks building plots as districts are cleared. Clearing districts is the first-hour backbone.
+- **Feature unlocks**: use `isUnlocked(s, feature)` / `unlockHint(feature)` from `src/core/unlocks.ts`.
+- **HQ gating** (§2.3): no building may exceed HQ level. Each HQ level requires two specific buildings at
+  (target-1), rotating through wall/barracks/drill/tankcenter/hospital, with Tech Center required from HQ 8.
+  Building types/plots unlock at HQ levels and cleared districts. Hero level cap = 5 × HQ level.
+- **Builders**: 1 queue by default; a 2nd permanent queue can be bought for 500 diamonds. Upgrades with
+  ≤ 5 min remaining can be finished free. Speed-up items 1m/5m/1h/8h. Instant-finish with diamonds.
+- **Timers/costs**: L1→2 a few seconds, ~1 min by L4, ~10 min by L8, ~1 h by L12, hours beyond. Costs grow
+  ~1.75× per level early, ~1.5× mid, ~1.35× late. Coins (gold) needed from ~HQ 8+.
+- **Production** (§2.6): farm/iron mine produce ~ (level × 1150)/h scaled down for early pacing is fine, gold mine
+  ~720 × level/h, Training Base produces heroExp. Each producer stores up to 10 h then stops; a bubble floats
+  above it; tap to collect. Campaign idle rewards ("loot truck") cap at 8 h.
+- **Hero types & counters** (§3): tank > missile > aircraft > tank; counter = +20% dmg dealt AND -20% dmg taken.
+  Same-type squad bonus to atk/hp/def: 3 same +5%, 3+2 +10%, 4 +15%, 5 +20%.
+- **Heroes**: rarity SR (blue) / SSR (purple) / UR (gold); stars cost 25/50/100/300/500 shards; 3 skills
+  (auto attack, charged active, passive) upgraded with `skill_medal`; 4 gear slots; EXP from `heroExp`.
+  Starter squad: a few Tank heroes are granted at game start so district 1 is winnable.
+- **Recruitment**: tickets / diamonds; free pull timer; x1 and x10; duplicates → shards; UR pity.
+  Rates UR 2% / SSR 18% / SR 80%, UR pity at 50 (tunable).
+- **Formation**: 5 slots, front row (0-1) targeted first. Squad 1 at start; squads 2-4 via `squad2..4` unlocks.
+- **Troops** (§4): no types, tiers T1..T10 trained in Barracks (tier by barracks level); Drill Ground sets troop
+  capacity; each hero leads up to its march size of troops (highest tier first); troops add HP/ATK.
+  Losses become wounded (hospital capacity), overflow dies.
+- **World map** (§6): zombie hordes lv 1..N (can attack up to `maxHordeLevel + 1`), 10 stamina per attack,
+  stamina cap 120, +1 per 5 min; resource tiles to gather; marches take real travel time; radar board of
+  ~10 missions refreshing every 6 h.
+- **Quests/daily** (§8): chapter quest chains with a left-side tracker + "Go" button; daily tasks → activity
+  points → 5 chests (200 points).
+- **HUD layout** (§7): top-left avatar + Power; top resource bar (food, iron, gold, diamonds); left quest tracker;
+  right edge event/feature icons with red dots; bottom bar (Tasks, Heroes, Bag, Recruit, ...); big World/Base
+  toggle bottom-right; runner entry as a vehicle icon near the base gate.
 
 ## Mobile & performance rules
 - Portrait. Touch-first (large hit areas ≥ 40 px). Respect safe areas (`--safe-top` etc.).

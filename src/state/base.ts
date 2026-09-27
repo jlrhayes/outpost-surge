@@ -26,6 +26,6 @@ export function defaultBaseState(now: number): BaseState {
     buildings: [
       { uid: 'hq_1', type: 'hq', level: 1, plot: 0, upgradeEndsAt: null, upgradeStartedAt: null, collectedAt: now },
     ],
-    builders: 2,
+    builders: 1,
   };
 }

@@ -15,7 +15,7 @@ export interface WorldState {
 export function defaultWorldState(now: number): WorldState {
   return {
     seed: Math.floor(Math.random() * 1e9),
-    stamina: 100,
+    stamina: 120,
     staminaAt: now,
     maxHordeLevel: 0,
     entities: [],
