@@ -14,6 +14,7 @@ import { Icon } from '../components/Icon';
 import { QuantityPicker } from '../components/QuantityPicker';
 import { TimerBar } from '../components/TimerBar';
 import { openTrainingSpeedup } from './timers';
+import { buildingName } from '../../data/buildings';
 
 export function SoldierBadge(props: { tier: number; size?: number; locked?: boolean }) {
   const size = props.size ?? 56;
@@ -56,7 +57,7 @@ export function BarracksScreen(props: { uid?: string; screenKey: number }) {
       <div class="cap-card card">
         <div class="cap-row">
           <span>
-            <Icon name="troops" size={20} /> Drill Ground capacity
+            <Icon name="troops" size={20} /> {buildingName('drill')} capacity
           </span>
           <b>
             {fmt(ready + inTraining)} / {fmt(cap)}
@@ -131,7 +132,7 @@ export function BarracksScreen(props: { uid?: string; screenKey: number }) {
         ) : (
           <>
             <QuantityPicker value={count} min={maxQty > 0 ? 1 : 0} max={maxQty} onChange={setQty} />
-            {maxQty === 0 && !job && <div class="locked-note">Drill Ground is full — upgrade it to house more soldiers.</div>}
+            {maxQty === 0 && !job && <div class="locked-note">{buildingName('drill')} is full — upgrade it to house more soldiers.</div>}
             <div class="train-cost-row">
               <CostView cost={cost} />
               <span class="tech-time">

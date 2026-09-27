@@ -8,6 +8,7 @@ import { now } from '../core/tick';
 import { isUnlocked } from '../core/unlocks';
 import { buildingLevel } from './buildings';
 import { ROW_TECH_LEVEL, TECHS, TECH_BY_ID, techCost, techTimeMs, type TechDef } from '../data/research';
+import { buildingName } from '../data/buildings';
 
 export function techLevel(s: GameState, id: string): number {
   return s.meta.research[id] ?? 0;
@@ -31,7 +32,7 @@ export function checkTech(s: GameState, def: TechDef): TechCheck {
   if (lv >= def.maxLevel) return { status: 'maxed', missing: [] };
   const missing: string[] = [];
   const need = techCenterLevelFor(def);
-  if (buildingLevel(s, 'tech') < need) missing.push(`Tech Center Lv ${need}`);
+  if (buildingLevel(s, 'tech') < need) missing.push(`${buildingName('tech')} Lv ${need}`);
   for (const r of def.requires) {
     if (techLevel(s, r.id) < r.level) missing.push(`${TECH_BY_ID[r.id]?.name ?? r.id} Lv ${r.level}`);
   }
@@ -52,7 +53,7 @@ export function startResearch(id: string): string | null {
   const def = TECH_BY_ID[id];
   if (!def) return 'Unknown research';
   if (!isUnlocked(s, 'research')) return 'Research is locked';
-  if (buildingLevel(s, 'tech') < 1) return 'Build a Tech Center first';
+  if (buildingLevel(s, 'tech') < 1) return `Build a ${buildingName('tech')} first`;
   if (s.meta.researchJob) return 'Another research is in progress';
   const chk = checkTech(s, def);
   if (chk.status === 'maxed') return 'Already at max level';

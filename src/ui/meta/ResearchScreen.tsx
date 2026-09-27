@@ -16,6 +16,7 @@ import { Btn, CostView, Modal, Screen, Tabs } from '../components/common';
 import { Icon } from '../components/Icon';
 import { TimerBar } from '../components/TimerBar';
 import { openResearchSpeedup } from './timers';
+import { buildingName } from '../../data/buildings';
 
 const ROW_H = 132;
 
@@ -30,7 +31,7 @@ export function ResearchScreen() {
       <Screen title="Research" icon="flask">
         <div class="empty-state">
           <Icon name={isUnlocked(s, 'research') ? 'flask' : 'lock'} size={72} />
-          <div>{isUnlocked(s, 'research') ? 'Build a Tech Center to start researching.' : unlockHint('research')}</div>
+          <div>{isUnlocked(s, 'research') ? `Build a ${buildingName('tech')} to start researching.` : unlockHint('research')}</div>
           {isUnlocked(s, 'research') && (
             <Btn color="blue" onClick={() => focusBuilding({ type: 'tech', openPanel: true })}>
               Go
@@ -50,7 +51,7 @@ export function ResearchScreen() {
     <Screen title="Research" icon="flask" class="research-screen">
       <div class="research-top">
         <span>
-          <Icon name="flask" size={18} /> Tech Center <b>Lv {tc}</b>
+          <Icon name="flask" size={18} /> {buildingName('tech')} <b>Lv {tc}</b>
         </span>
         <span class="dim-text">Speed +{Math.round(getBonus(s, 'research_speed_pct'))}%</span>
       </div>
@@ -217,7 +218,7 @@ function TechDetail(props: { def: TechDef; onClose: () => void }) {
           <div class="req-list">
             <div class={'req ' + (buildingLevel(s, 'tech') >= techCenterLevelFor(d) ? 'ok' : 'bad')}>
               <Icon name={buildingLevel(s, 'tech') >= techCenterLevelFor(d) ? 'check' : 'cross'} size={18} />
-              Tech Center Lv {techCenterLevelFor(d)}
+              {buildingName('tech')} Lv {techCenterLevelFor(d)}
             </div>
             {d.requires.map((r) => {
               const ok = techLevel(s, r.id) >= r.level;

@@ -6,6 +6,7 @@ import type { BuildingType, ModeId, Reward } from '../core/types';
 import type { Feature } from '../core/unlocks';
 import { districtsCleared } from '../core/unlocks';
 import { buildingLevel, buildingsOf, hqLevel } from '../systems/buildings';
+import { buildingName } from './buildings';
 import { totalPower } from '../core/bonuses';
 import { fmt } from '../core/format';
 
@@ -36,25 +37,10 @@ export interface ChapterDef {
   reward: Reward;
 }
 
-/** Display names used in quest text (the base module owns the buildings themselves). */
-export const BUILDING_LABEL: Record<BuildingType, string> = {
-  hq: 'Headquarters',
-  wall: 'Wall',
-  barracks: 'Barracks',
-  drill: 'Drill Ground',
-  hospital: 'Hospital',
-  tech: 'Tech Center',
-  farm: 'Farm',
-  ironmine: 'Iron Mine',
-  goldmine: 'Gold Mine',
-  warehouse: 'Warehouse',
-  tavern: 'Tavern',
-  tankcenter: 'Tank Center',
-  aircenter: 'Aircraft Center',
-  missilecenter: 'Missile Center',
-  radar: 'Radar',
-  trainingbase: 'Training Base',
-};
+/** Display names used in quest text — sourced from the base module's building definitions. */
+export const BUILDING_LABEL: Record<BuildingType, string> = new Proxy({} as Record<BuildingType, string>, {
+  get: (_t, k) => buildingName(k as BuildingType),
+});
 
 // ---------- progress helpers ----------
 const stat = (s: GameState, k: string) => s.stats[k] ?? 0;
@@ -82,7 +68,7 @@ function upgrade(ch: number, type: BuildingType, level: number, reward: Reward):
   return q(ch, `Upgrade ${BUILDING_LABEL[type]} to Lv ${level}`, level, (s) => buildingLevel(s, type), reward, { kind: 'building', type, openPanel: true });
 }
 function hq(ch: number, level: number, reward: Reward): QuestDef {
-  return q(ch, `Upgrade Headquarters to Lv ${level}`, level, (s) => hqLevel(s), reward, { kind: 'building', type: 'hq', openPanel: true });
+  return q(ch, `Upgrade ${buildingName('hq')} to Lv ${level}`, level, (s) => hqLevel(s), reward, { kind: 'building', type: 'hq', openPanel: true });
 }
 function own(ch: number, type: BuildingType, n: number, reward: Reward): QuestDef {
   return q(ch, `Own ${n} ${BUILDING_LABEL[type]}s`, n, (s) => builtCount(s, type), reward, { kind: 'building', type });

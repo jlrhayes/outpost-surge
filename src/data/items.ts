@@ -217,7 +217,7 @@ const DEFS: ItemDef[] = [
   {
     id: 'recruit_ticket',
     name: 'Muster Ticket',
-    desc: 'Recruits one hero at the Tavern.',
+    desc: 'Recruits one hero at the Mess Hall.',
     icon: 'ticket',
     category: 'other',
     rarity: 'rare',

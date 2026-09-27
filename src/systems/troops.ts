@@ -8,6 +8,7 @@ import { emit } from '../core/events';
 import { now } from '../core/tick';
 import { hospitalCapacity, maxTrainTier, trainBatchSize, troopCapacity } from './buildings';
 import { HEAL_COST_FACTOR, HEAL_TIME_FACTOR, MAX_TIER, troopTier } from '../data/troops';
+import { buildingName } from '../data/buildings';
 
 export function totalTroops(s: GameState): number {
   let n = 0;
@@ -145,7 +146,7 @@ export function startTraining(barracksUid: string, tier: number, count: number):
   if (count <= 0) return 'Choose how many soldiers to train';
   if (tier > maxTrainTier(s)) return 'Upgrade the Barracks to train this tier';
   if (trainingJobFor(s, barracksUid)) return 'This Barracks is already training';
-  if (count > troopRoom(s)) return 'Not enough Drill Ground space';
+  if (count > troopRoom(s)) return `Not enough ${buildingName('drill')} space`;
   if (count > trainBatchSize(s, barracksUid)) return 'Batch too large for this Barracks';
   const cost = trainCost(tier, count);
   if (!canAfford(s, cost)) return 'Not enough resources';
