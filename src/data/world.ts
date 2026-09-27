@@ -98,11 +98,11 @@ const VARIANT_LOOT_MULT: Record<HordeVariant, number> = { normal: 1, elite: 2.5,
 
 /** Deterministic loot preview shown before attacking (items listed as guaranteed/chance separately). */
 export function hordeLootPreview(level: number, variant: HordeVariant): Reward {
-  const g = Math.pow(1.18, level - 1) * VARIANT_LOOT_MULT[variant];
+  const g = Math.pow(1.11, level - 1) * VARIANT_LOOT_MULT[variant];
   const currencies: Reward['currencies'] = {
     food: Math.round(700 * g),
     iron: Math.round(520 * g),
-    heroExp: Math.round(300 * Math.pow(1.17, level - 1) * VARIANT_LOOT_MULT[variant]),
+    heroExp: Math.round(300 * Math.pow(1.12, level - 1) * VARIANT_LOOT_MULT[variant]),
   };
   if (level >= 4) currencies.gold = Math.round(110 * g);
   const items: Record<string, number> = {};
@@ -122,9 +122,9 @@ export function rollHordeLoot(level: number, variant: HordeVariant, rng: () => n
   for (const [k, v] of Object.entries(base.currencies ?? {})) currencies[k] = Math.round((v ?? 0) * (0.9 + rng() * 0.2));
   const items: Record<string, number> = {};
   for (const [k, v] of Object.entries(base.items ?? {})) items[k] = v ?? 0;
-  if (rng() < 0.3) items.speedup_5m = (items.speedup_5m ?? 0) + 1;
+  if (rng() < 0.3) items.speedup_1m = (items.speedup_1m ?? 0) + 1;
   if (variant !== 'normal' && rng() < 0.25) items.recruit_ticket = (items.recruit_ticket ?? 0) + 1;
-  if (level >= 8 && rng() < 0.12) items.speedup_1h = (items.speedup_1h ?? 0) + 1;
+  if (level >= 8 && rng() < 0.12) items.speedup_5m = (items.speedup_5m ?? 0) + 1;
   return Object.keys(items).length ? { currencies, items } : { currencies };
 }
 
@@ -194,17 +194,17 @@ export function radarReward(kind: RadarKind, stars: number, tier: number, rng: (
   const r = (n: number) => Math.round(n * g);
   switch (kind) {
     case 'rescue':
-      return { currencies: { heroExp: r(600), food: r(900) }, items: rng() < 0.4 ? { speedup_5m: 1 } : undefined };
+      return { currencies: { heroExp: r(600), food: r(900) }, items: rng() < 0.4 ? { speedup_1m: 1 } : undefined };
     case 'cache': {
       const res = rng() < 0.5 ? 'food' : 'iron';
       return { currencies: { [res]: r(1600), gold: r(200) } };
     }
     case 'horde':
-      return { currencies: { food: r(1400), iron: r(1100), heroExp: r(500) }, items: { speedup_5m: 1 + Math.floor(stars / 3) } };
+      return { currencies: { food: r(1400), iron: r(1100), heroExp: r(500) }, items: { speedup_1m: 1 + Math.floor(stars / 3) } };
     case 'elite':
       return { currencies: { diamonds: 10 + stars * 6, heroExp: r(900) }, items: { skill_medal: 1 + Math.floor(stars / 2) } };
     case 'dig':
-      return { currencies: { gold: r(500), iron: r(1200) }, items: rng() < 0.35 ? { speedup_1h: 1 } : { speedup_5m: 2 } };
+      return { currencies: { gold: r(500), iron: r(1200) }, items: rng() < 0.35 ? { speedup_5m: 1 } : { speedup_1m: 2 } };
   }
 }
 

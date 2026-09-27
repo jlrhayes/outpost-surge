@@ -14,13 +14,28 @@ function ac(): AudioContext | null {
     master.gain.value = 0.35;
     master.connect(ctx.destination);
   }
-  if (ctx.state === 'suspended') void ctx.resume();
+  // iOS reports 'interrupted' after calls/backgrounding; resume from any non-running state.
+  if (ctx.state !== 'running' && !suspendedByApp) void ctx.resume().catch(() => {});
   return ctx;
 }
 
-/** Must be called from a user gesture once so mobile browsers allow audio. */
-export function unlockAudio(): void {
-  ac();
+let suspendedByApp = false;
+
+/** Call from a user gesture (tap/click) so mobile browsers allow audio. Returns true once audio is running. */
+export function unlockAudio(): boolean {
+  const c = ac();
+  return !!c && c.state === 'running';
+}
+
+/** Pause all sound while the app is in the background. */
+export function suspendAudio(): void {
+  suspendedByApp = true;
+  if (ctx && ctx.state === 'running') void ctx.suspend().catch(() => {});
+}
+
+export function resumeAudio(): void {
+  suspendedByApp = false;
+  if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {});
 }
 
 function tone(freq: number, dur: number, type: OscillatorType, vol = 0.5, slideTo?: number, delay = 0): void {

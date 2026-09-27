@@ -9,12 +9,23 @@ import { fmt, fmtDuration } from '../../core/format';
 import { Bar, Btn, Screen, SectionTitle } from '../components/common';
 import { Icon } from '../components/Icon';
 import { ZOMBIE_KINDS, IDLE_CAP_HOURS } from '../../data/campaign';
-import { squadPower, squadReady, unlockedSquadIds } from '../../systems/heroes';
-import { claimIdleLoot, districtInfo, districtsClearedCount, idleLoot, idleRates, startDistrictBattle } from '../../systems/campaign';
+import { TYPE_LABEL } from '../../data/heroes';
+import { getSquad, squadBusy, squadPower, squadReady, squadTypes, unlockedSquadIds } from '../../systems/heroes';
+import { COUNTERS, weakTo } from '../../systems/battle';
+import {
+  claimIdleLoot,
+  counterHint,
+  districtBattleBlocker,
+  districtInfo,
+  districtsClearedCount,
+  idleLoot,
+  idleRates,
+  startDistrictBattle,
+} from '../../systems/campaign';
 import type { BattleUnit } from '../../systems/heroes';
-import type { Reward } from '../../core/types';
+import type { HeroType, Reward } from '../../core/types';
 import { ZombiePortrait } from './HeroPortrait';
-import { ItemIcon } from './icons';
+import { ItemIcon, TYPE_COLOR, TypeIcon } from './icons';
 import { PowerTag, RewardList } from './parts';
 import { RewardList as RewardTiles } from '../components/RewardList';
 
@@ -33,11 +44,46 @@ function difficulty(ratio: number): { label: string; cls: string } {
 function EnemyChip(props: { e: BattleUnit }) {
   const e = props.e;
   const kind = Object.values(ZOMBIE_KINDS).find((k) => k.model === e.model);
+  const t = e.ctype;
   return (
-    <div class={`enemy-chip ${e.model === 'zombieBoss' ? 'boss' : ''}`} title={kind?.blurb}>
+    <div
+      class={`enemy-chip ${e.model === 'zombieBoss' ? 'boss' : ''} ${t ? 'typed type-' + t : ''}`}
+      title={t ? `${TYPE_LABEL[t]} type · ${counterHint(t)}${kind ? ' · ' + kind.blurb : ''}` : kind?.blurb}
+    >
       <ZombiePortrait model={e.model} size={e.model === 'zombieBoss' ? 64 : 48} />
+      {t && (
+        <span class="ec-type">
+          <TypeIcon type={t} size={e.model === 'zombieBoss' ? 22 : 18} />
+        </span>
+      )}
       <div class="ec-name">{e.name}</div>
+      {t && (
+        <div class="ec-weak" style={{ color: TYPE_COLOR[weakTo(t)] }}>
+          {counterHint(t)}
+        </div>
+      )}
       {kind && kind.count > 1 && <div class="ec-count">×{kind.count}</div>}
+    </div>
+  );
+}
+
+/** One line per enemy type: how many of the squad's heroes counter it (and are countered by it). */
+function CounterHint(props: { types: HeroType[]; squad: HeroType[] }) {
+  if (!props.types.length) return null;
+  return (
+    <div class="dc-counter">
+      {props.types.map((t) => {
+        const good = props.squad.filter((x) => x === weakTo(t)).length;
+        const bad = props.squad.filter((x) => COUNTERS[t] === x).length;
+        return (
+          <span key={t}>
+            <TypeIcon type={t} size={16} /> {TYPE_LABEL[t]} enemies: weak to <b style={{ color: TYPE_COLOR[weakTo(t)] }}>{TYPE_LABEL[weakTo(t)]}</b>
+            {' · '}
+            {good > 0 ? <span class="ok">{good} of your heroes counter them</span> : <span class="bad">none of your heroes counter them</span>}
+            {bad > 0 && <span class="bad"> · {bad} of yours are weak to them</span>}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -112,7 +158,13 @@ function LootTruck() {
 export function CampaignScreen() {
   const s = useGame();
   const squads = unlockedSquadIds(s).filter((id) => squadReady(s, id));
-  const [squadId, setSquadId] = useState(squads[0] ?? 1);
+  // Prefer a squad that is at home (not out on a world march).
+  const [picked, setSquadId] = useState<number | null>(null);
+  const squadId = picked ?? squads.find((id) => !squadBusy(s, id)) ?? squads[0] ?? 1;
+  const busy = squadBusy(s, squadId);
+  const blocker = districtBattleBlocker(s, squadId);
+  const sq = getSquad(s, squadId);
+  const myTypes = sq ? squadTypes(s, sq) : [];
   const stage = s.heroes.campaign.stage;
   const info = districtInfo(stage);
   const power = squadPower(s, squadId);
@@ -156,6 +208,7 @@ export function CampaignScreen() {
             ))}
           </div>
         </div>
+        <CounterHint types={info.enemyTypes} squad={myTypes} />
         <div class="dc-power">
           <div>
             <div class="dim-label">Recommended</div>
@@ -172,10 +225,12 @@ export function CampaignScreen() {
             {squads.map((id) => (
               <button key={id} class={`squad-tab ${id === squadId ? 'active' : ''}`} onClick={() => setSquadId(id)}>
                 Squad {id}
+                {squadBusy(s, id) && <span class="busy-dot" title="On a world march" />}
               </button>
             ))}
           </div>
         )}
+        {busy && <div class="dc-busy">Squad {squadId} is out on the world map — it can fight here once it returns.</div>}
         <div class="dc-rewards">
           <div class="dim-label">Clear rewards</div>
           <RewardTiles reward={info.rewards} size={44} center={false} />
@@ -187,10 +242,15 @@ export function CampaignScreen() {
           <Btn
             color="yellow"
             class="battle-btn"
+            disabled={busy}
             onClick={() => {
               if (!squadReady(s, squadId)) {
                 toast('Assign heroes in Formation first', 'bad');
                 openScreen('formation', { squadId });
+                return;
+              }
+              if (blocker) {
+                toast(blocker, 'bad');
                 return;
               }
               startDistrictBattle(squadId);

@@ -131,128 +131,133 @@ export function SettingsScreen() {
         </Row>
       </div>
 
-      <SectionTitle>Dev Tools</SectionTitle>
-      <div class="card set-card dev-tools">
-        <div class="dev-label">
-          <Icon name="clock" size={18} /> Skip time
+      {/* Dev tools only exist in development builds (they bypass progression). */}
+      {import.meta.env.DEV && (
+        <>
+        <SectionTitle>Dev Tools</SectionTitle>
+        <div class="card set-card dev-tools">
+          <div class="dev-label">
+            <Icon name="clock" size={18} /> Skip time
+          </div>
+          <div class="dev-grid">
+            <Btn small color="blue" onClick={() => skip(60_000, '1 minute')}>
+              +1m
+            </Btn>
+            <Btn small color="blue" onClick={() => skip(600_000, '10 minutes')}>
+              +10m
+            </Btn>
+            <Btn small color="blue" onClick={() => skip(3_600_000, '1 hour')}>
+              +1h
+            </Btn>
+            <Btn
+              small
+              color="blue"
+              onClick={() => {
+                const t = now();
+                mutate((st) => {
+                  for (const j of st.meta.training) j.endsAt = Math.min(j.endsAt, t);
+                  if (st.meta.researchJob) st.meta.researchJob.endsAt = Math.min(st.meta.researchJob.endsAt, t);
+                  if (st.meta.healing) st.meta.healing.endsAt = Math.min(st.meta.healing.endsAt, t);
+                  for (const b of st.base.buildings) if (b.upgradeEndsAt) b.upgradeEndsAt = Math.min(b.upgradeEndsAt, t);
+                });
+                runTickers();
+                toast('All timers finished', 'info');
+              }}
+            >
+              Finish all
+            </Btn>
+          </div>
+          <div class="dev-label">
+            <Icon name="gift" size={18} /> Grant
+          </div>
+          <div class="dev-grid">
+            <Btn
+              small
+              color="green"
+              onClick={() => {
+                mutate((st) => grantIn(st, { currencies: { food: 100_000, iron: 100_000, gold: 50_000, heroExp: 50_000 } }));
+                toast('Resources added', 'good');
+              }}
+            >
+              Resources
+            </Btn>
+            <Btn
+              small
+              color="purple"
+              onClick={() => {
+                mutate((st) => grantIn(st, { currencies: { diamonds: 5000 } }));
+                toast('+5,000 Diamonds', 'good');
+              }}
+            >
+              Diamonds
+            </Btn>
+            <Btn
+              small
+              color="green"
+              onClick={() => {
+                mutate((st) =>
+                  grantIn(st, {
+                    items: { speedup_1m: 20, speedup_5m: 20, speedup_1h: 5, speedup_8h: 2, recruit_ticket: 10, food_box: 5, iron_box: 5, gold_box: 3, exp_box: 5, stamina_potion: 5, skill_medal: 20 },
+                  }),
+                );
+                toast('Items added', 'good');
+              }}
+            >
+              Items
+            </Btn>
+            <Btn
+              small
+              color="green"
+              onClick={() => {
+                mutate((st) => grantIn(st, { troops: { 1: 500 } }));
+                toast('+500 soldiers', 'good');
+              }}
+            >
+              Troops
+            </Btn>
+          </div>
+          <div class="dev-label">
+            <Icon name="lock" size={18} /> Progress
+          </div>
+          <div class="dev-grid">
+            <Btn
+              small
+              color="yellow"
+              onClick={() =>
+                confirmDialog({
+                  title: 'Unlock everything?',
+                  text: 'Raises HQ to Lv 20 and clears the first districts so every feature unlocks. Dev only.',
+                  confirmLabel: 'Unlock',
+                  color: 'yellow',
+                  onConfirm: () => {
+                    mutate((st) => {
+                      const hq = st.base.buildings.find((b) => b.type === 'hq');
+                      if (hq && hq.level < 20) hq.level = 20;
+                      if (st.heroes.campaign.stage < 4) st.heroes.campaign.stage = 4;
+                      st.runner.introDone = true;
+                    });
+                    toast('All features unlocked', 'good');
+                  },
+                })
+              }
+            >
+              Unlock all
+            </Btn>
+            <Btn
+              small
+              color="gray"
+              onClick={() => {
+                mutate((st) => (st.meta.daily.date = ''));
+                runTickers();
+                toast('Daily tasks reset', 'info');
+              }}
+            >
+              Reset daily
+            </Btn>
+          </div>
         </div>
-        <div class="dev-grid">
-          <Btn small color="blue" onClick={() => skip(60_000, '1 minute')}>
-            +1m
-          </Btn>
-          <Btn small color="blue" onClick={() => skip(600_000, '10 minutes')}>
-            +10m
-          </Btn>
-          <Btn small color="blue" onClick={() => skip(3_600_000, '1 hour')}>
-            +1h
-          </Btn>
-          <Btn
-            small
-            color="blue"
-            onClick={() => {
-              const t = now();
-              mutate((st) => {
-                for (const j of st.meta.training) j.endsAt = Math.min(j.endsAt, t);
-                if (st.meta.researchJob) st.meta.researchJob.endsAt = Math.min(st.meta.researchJob.endsAt, t);
-                if (st.meta.healing) st.meta.healing.endsAt = Math.min(st.meta.healing.endsAt, t);
-                for (const b of st.base.buildings) if (b.upgradeEndsAt) b.upgradeEndsAt = Math.min(b.upgradeEndsAt, t);
-              });
-              runTickers();
-              toast('All timers finished', 'info');
-            }}
-          >
-            Finish all
-          </Btn>
-        </div>
-        <div class="dev-label">
-          <Icon name="gift" size={18} /> Grant
-        </div>
-        <div class="dev-grid">
-          <Btn
-            small
-            color="green"
-            onClick={() => {
-              mutate((st) => grantIn(st, { currencies: { food: 100_000, iron: 100_000, gold: 50_000, heroExp: 50_000 } }));
-              toast('Resources added', 'good');
-            }}
-          >
-            Resources
-          </Btn>
-          <Btn
-            small
-            color="purple"
-            onClick={() => {
-              mutate((st) => grantIn(st, { currencies: { diamonds: 5000 } }));
-              toast('+5,000 Diamonds', 'good');
-            }}
-          >
-            Diamonds
-          </Btn>
-          <Btn
-            small
-            color="green"
-            onClick={() => {
-              mutate((st) =>
-                grantIn(st, {
-                  items: { speedup_1m: 20, speedup_5m: 20, speedup_1h: 5, speedup_8h: 2, recruit_ticket: 10, food_box: 5, iron_box: 5, gold_box: 3, exp_box: 5, stamina_potion: 5, skill_medal: 20 },
-                }),
-              );
-              toast('Items added', 'good');
-            }}
-          >
-            Items
-          </Btn>
-          <Btn
-            small
-            color="green"
-            onClick={() => {
-              mutate((st) => grantIn(st, { troops: { 1: 500 } }));
-              toast('+500 soldiers', 'good');
-            }}
-          >
-            Troops
-          </Btn>
-        </div>
-        <div class="dev-label">
-          <Icon name="lock" size={18} /> Progress
-        </div>
-        <div class="dev-grid">
-          <Btn
-            small
-            color="yellow"
-            onClick={() =>
-              confirmDialog({
-                title: 'Unlock everything?',
-                text: 'Raises HQ to Lv 20 and clears the first districts so every feature unlocks. Dev only.',
-                confirmLabel: 'Unlock',
-                color: 'yellow',
-                onConfirm: () => {
-                  mutate((st) => {
-                    const hq = st.base.buildings.find((b) => b.type === 'hq');
-                    if (hq && hq.level < 20) hq.level = 20;
-                    if (st.heroes.campaign.stage < 4) st.heroes.campaign.stage = 4;
-                    st.runner.introDone = true;
-                  });
-                  toast('All features unlocked', 'good');
-                },
-              })
-            }
-          >
-            Unlock all
-          </Btn>
-          <Btn
-            small
-            color="gray"
-            onClick={() => {
-              mutate((st) => (st.meta.daily.date = ''));
-              runTickers();
-              toast('Daily tasks reset', 'info');
-            }}
-          >
-            Reset daily
-          </Btn>
-        </div>
-      </div>
+        </>
+      )}
 
       <SectionTitle>Credits</SectionTitle>
       <div class="card set-card credits">

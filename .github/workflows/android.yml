@@ -84,6 +84,10 @@ jobs:
             echo "Release keystore decoded ($(stat -c %s "$RUNNER_TEMP/release.p12") bytes)."
           else
             echo "::warning title=Unsigned release::ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD secrets are not set, so this APK is signed with a temporary debug key. Players will have to uninstall before installing a build signed with a different key. Run 'npm run keystore' and add the secrets (see README)."
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "::error title=Refusing unsigned release::Tagged releases must be signed with the release key so players can update without losing progress."
+              exit 1
+            fi
           fi
 
       - name: Build release APK

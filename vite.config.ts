@@ -10,5 +10,14 @@ export default defineConfig({
   build: {
     target: 'es2020',
     chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        // three.js changes rarely: keep it in its own long-cached chunk so game updates download less.
+        manualChunks(id: string) {
+          if (id.includes('node_modules/three/')) return 'three';
+          if (id.includes('node_modules/')) return 'vendor';
+        },
+      },
+    },
   },
 });

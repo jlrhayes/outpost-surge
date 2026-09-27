@@ -7,6 +7,8 @@ export interface BarSpec {
   label: string;
   hasEnergy: boolean;
   big: boolean;
+  /** Small coloured tag before the label (e.g. the counter type of a typed zombie pack). */
+  tag?: { text: string; color: string };
 }
 
 interface Bar {
@@ -70,7 +72,14 @@ export class BattleOverlay {
       el.className = `bbar side-${s.side}${s.big ? ' big' : ''}`;
       const name = document.createElement('div');
       name.className = 'bbar-name';
-      name.textContent = s.label;
+      if (s.tag) {
+        const tag = document.createElement('span');
+        tag.className = 'bbar-type';
+        tag.textContent = s.tag.text;
+        tag.style.background = s.tag.color;
+        name.appendChild(tag);
+      }
+      name.appendChild(document.createTextNode(s.label));
       const hp = document.createElement('div');
       hp.className = 'bbar-hp';
       const lag = document.createElement('div');

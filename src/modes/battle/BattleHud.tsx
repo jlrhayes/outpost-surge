@@ -2,6 +2,10 @@
 import { useEffect, useState } from 'preact/hooks';
 import { fmt } from '../../core/format';
 import { sfx } from '../../core/audio';
+import { game } from '../../core/store';
+import { focusBuilding, openScreen } from '../../core/nav';
+import { isUnlocked, unlockHint } from '../../core/unlocks';
+import { buildingsOf } from '../../systems/buildings';
 import { Btn } from '../../ui/components/common';
 import { BATTLE_MAX_TIME } from '../../systems/battle';
 import { HeroPortrait, ZombiePortrait } from '../../ui/heroes/HeroPortrait';
@@ -87,6 +91,72 @@ function Banner() {
   );
 }
 
+/** Leaves the battle (same as Continue), then opens a screen on top of the mode we return to. */
+function leaveTo(open: () => void): void {
+  battleControls.finish();
+  open();
+}
+
+/** Defeat screen: one-tap ways to get stronger instead of text tips. */
+function DefeatActions(props: { squadId?: number; ready: boolean }) {
+  const s = game;
+  const recruitOpen = isUnlocked(s, 'recruit');
+  const barracks = buildingsOf(s, 'barracks').find((b) => b.level >= 1);
+  const actions: { id: string; label: string; hint: string; icon: string; disabled?: boolean; go: () => void }[] = [
+    { id: 'heroes', label: 'Heroes', hint: 'Level up & stars', icon: 'hero', go: () => openScreen('heroes') },
+    {
+      id: 'formation',
+      label: 'Formation',
+      hint: 'Use counters',
+      icon: 'formation',
+      go: () => openScreen('formation', props.squadId ? { squadId: props.squadId } : undefined),
+    },
+    {
+      id: 'barracks',
+      label: 'Barracks',
+      hint: 'Train soldiers',
+      icon: 'troops',
+      go: () => (barracks ? openScreen('barracks', { uid: barracks.uid }) : focusBuilding({ type: 'barracks', openPanel: true })),
+    },
+    {
+      id: 'recruit',
+      label: 'Recruit',
+      hint: recruitOpen ? 'New heroes' : unlockHint('recruit'),
+      icon: 'recruit_ticket',
+      disabled: !recruitOpen,
+      go: () => openScreen('recruit'),
+    },
+  ];
+  return (
+    <div class="br-section br-go">
+      <div class="br-h">Get stronger</div>
+      <div class="br-go-grid">
+        {actions.map((a) => (
+          <button
+            key={a.id}
+            class={`br-go-btn interactive ${a.disabled ? 'disabled' : ''}`}
+            disabled={!props.ready || a.disabled}
+            onClick={() => {
+              sfx.click();
+              leaveTo(a.go);
+            }}
+          >
+            <span class="br-go-icon">
+              <ItemIcon id={a.icon} size={26} />
+            </span>
+            <span class="br-go-text">
+              <b>{a.label}</b>
+              <span>{a.hint}</span>
+            </span>
+            <span class="br-go-arrow">›</span>
+          </button>
+        ))}
+      </div>
+      <div class="br-tips">Tank &gt; Missile &gt; Aircraft &gt; Tank — countering deals +20% damage and takes 20% less.</div>
+    </div>
+  );
+}
+
 function ResultOverlay() {
   const v = battleView.value;
   const res = v.result;
@@ -164,7 +234,7 @@ function ResultOverlay() {
             {n}
           </div>
         ))}
-        {!won && <div class="br-tips">Tips: level up heroes, raise stars & skills, train higher-tier soldiers, and use type counters (Tank &gt; Missile &gt; Aircraft &gt; Tank).</div>}
+        {!won && <DefeatActions squadId={req.squadId} ready={ready} />}
         <Btn color={won ? 'yellow' : 'blue'} class="br-continue" disabled={!ready} onClick={() => battleControls.finish()}>
           Continue
         </Btn>

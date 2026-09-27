@@ -56,7 +56,7 @@ export const ZOMBIE_KINDS: Record<ZombieKind, ZombieKindDef> = {
   },
   brute: {
     kind: 'brute',
-    name: 'Hulk',
+    name: 'Mauler',
     model: 'zombieBrute',
     skillId: 'z_smash',
     ratio: { hp: 16, atk: 0.75, def: 0.9 },
@@ -105,10 +105,11 @@ export function districtName(n: number): string {
 export const DISTRICT_BASE_POWER = 6200;
 /** +12% per district for the first 15, +11% up to 40, then +7.5% (keeps late districts reachable). */
 export function districtPower(n: number): number {
-  const a = Math.min(n, 15) - 1;
-  const b = Math.max(0, Math.min(n, 40) - 15);
-  const c = Math.max(0, n - 40);
-  return Math.round(DISTRICT_BASE_POWER * Math.pow(1.12, a) * Math.pow(1.11, b) * Math.pow(1.075, c));
+  const a = Math.min(n, 10) - 1;
+  const b = Math.max(0, Math.min(n, 20) - 10);
+  const c = Math.max(0, Math.min(n, 40) - 20);
+  const d = Math.max(0, n - 40);
+  return Math.round(DISTRICT_BASE_POWER * Math.pow(1.22, a) * Math.pow(1.09, b) * Math.pow(1.055, c) * Math.pow(1.06, d));
 }
 
 export function isBossDistrict(n: number): boolean {
@@ -123,9 +124,22 @@ export const IDLE_CAP_HOURS = 8;
 export function idleRatesFor(cleared: number): { food: number; iron: number; gold: number; heroExp: number } {
   if (cleared <= 0) return { food: 0, iron: 0, gold: 0, heroExp: 0 };
   return {
-    food: 240 + 60 * cleared,
-    iron: 180 + 45 * cleared,
-    gold: cleared >= 8 ? 30 * (cleared - 7) : 0,
-    heroExp: 90 + 30 * cleared,
+    food: 600 + 250 * cleared,
+    iron: 450 + 190 * cleared,
+    gold: cleared > 7 ? 120 * (cleared - 7) : 0,
+    heroExp: 300 + 120 * cleared,
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Typed enemies (counter triangle). Zombies are type-less by default; bosses and some elite packs
+// carry a hero type so Tank > Missile > Aircraft > Tank matters when picking a squad.
+// ---------------------------------------------------------------------------------------------
+export type EnemyType = 'tank' | 'aircraft' | 'missile';
+/** Name prefix for typed (elite) zombie packs. Bosses keep their own names. */
+export const ELITE_PREFIX: Record<EnemyType, string> = { tank: 'Armored', aircraft: 'Leaping', missile: 'Volatile' };
+/** Boss types by boss index (district 5, 10, 15...): the first boss is weak to the starter Tank squad. */
+export const BOSS_TYPES: EnemyType[] = ['missile', 'aircraft', 'tank'];
+/** First district where an elite (typed) pack appears; from ELITE_DOUBLE_FROM the whole front row is typed. */
+export const ELITE_FROM = 6;
+export const ELITE_DOUBLE_FROM = 16;

@@ -6,7 +6,7 @@ import type { BuildingType, ModeId, Reward } from '../core/types';
 import type { Feature } from '../core/unlocks';
 import { districtsCleared } from '../core/unlocks';
 import { buildingLevel, buildingsOf, hqLevel } from '../systems/buildings';
-import { buildingName } from './buildings';
+import { buildingName, hqPrereqs } from './buildings';
 import { totalPower } from '../core/bonuses';
 import { fmt } from '../core/format';
 
@@ -111,9 +111,9 @@ function handmade(): ChapterDef[] {
         build(1, 'barracks', res(400, 400, { items: { speedup_1m: 3 } })),
         districts(1, 1, res(500, 500)),
         q(1, 'Deploy 3 heroes in Squad 1', 3, squadSize, res(300, 300, { currencies: { heroExp: 500 } }), { kind: 'screen', id: 'formation' }),
-        hq(1, 2, res(800, 800, { items: { speedup_5m: 1 } })),
+        hq(1, 2, res(800, 800, { items: { speedup_1m: 1 } })),
       ],
-      reward: { currencies: { diamonds: 50, food: 1500, iron: 1500 }, items: { speedup_5m: 2, food_box: 1 } },
+      reward: { currencies: { diamonds: 50, food: 1500, iron: 1500 }, items: { speedup_1m: 2, food_box: 1 } },
     },
     {
       index: 1,
@@ -125,9 +125,9 @@ function handmade(): ChapterDef[] {
         runner(2, 1, res(600, 600, { items: { exp_box: 1 } })),
         upgrade(2, 'wall', 2, res(800, 800)),
         districts(2, 2, res(800, 800)),
-        hq(2, 3, res(1200, 1200, { items: { speedup_5m: 2 } })),
+        hq(2, 3, res(1200, 1200, { items: { speedup_1m: 2 } })),
       ],
-      reward: { currencies: { diamonds: 60, gold: 300 }, items: { recruit_ticket: 2, iron_box: 1, speedup_5m: 2 } },
+      reward: { currencies: { diamonds: 60, gold: 300 }, items: { recruit_ticket: 2, iron_box: 1, speedup_1m: 2 } },
     },
     {
       index: 2,
@@ -137,11 +137,11 @@ function handmade(): ChapterDef[] {
         q(3, 'Recruit a hero', 1, (s) => Math.max(stat(s, 'recruits'), s.heroes.recruit.totalPulls), res(800, 800, { items: { recruit_ticket: 1 } }), { kind: 'screen', id: 'recruit', feature: 'recruit' }),
         upgrade(3, 'barracks', 3, res(1200, 1200)),
         upgrade(3, 'drill', 3, res(1200, 1200)),
-        build(3, 'hospital', res(1000, 1000, { items: { speedup_5m: 1 } })),
+        build(3, 'hospital', res(1000, 1000, { items: { speedup_1m: 1 } })),
         heroLevel(3, 5, res(800, 800, { currencies: { heroExp: 1500 } })),
-        hq(3, 4, res(2000, 2000, { items: { speedup_5m: 3 } })),
+        hq(3, 4, res(2000, 2000, { items: { speedup_1m: 3 } })),
       ],
-      reward: { currencies: { diamonds: 80, gold: 600 }, items: { recruit_ticket: 3, exp_box: 2, speedup_1h: 1 } },
+      reward: { currencies: { diamonds: 80, gold: 600 }, items: { recruit_ticket: 3, exp_box: 2, speedup_5m: 1 } },
     },
     {
       index: 3,
@@ -154,7 +154,7 @@ function handmade(): ChapterDef[] {
         runner(4, 3, res(1500, 1500, { items: { exp_box: 1 } })),
         districts(4, 5, res(2000, 2000)),
         upgrade(4, 'wall', 4, res(2000, 2000)),
-        hq(4, 5, res(3000, 3000, { items: { speedup_1h: 1 } })),
+        hq(4, 5, res(3000, 3000, { items: { speedup_5m: 1 } })),
       ],
       reward: { currencies: { diamonds: 100, gold: 1000 }, items: { recruit_ticket: 3, supply_crate: 2, stamina_potion: 2 } },
     },
@@ -164,14 +164,14 @@ function handmade(): ChapterDef[] {
       quests: [
         build(5, 'radar', res(2500, 2500)),
         upgrade(5, 'barracks', 4, res(2500, 2500)),
-        train(5, 300, res(3000, 3000, { items: { speedup_5m: 3 } })),
+        train(5, 300, res(3000, 3000, { items: { speedup_1m: 3 } })),
         upgrade(5, 'hospital', 3, res(2500, 2500)),
         horde(5, 3, res(3000, 3000, { items: { stamina_potion: 1 } })),
         districts(5, 8, res(3500, 3500)),
-        q(5, 'Use 30 minutes of speed-ups', 30, (s) => stat(s, 'speedupMinutes'), res(2000, 2000, { items: { speedup_5m: 4 } }), { kind: 'screen', id: 'bag' }),
-        hq(5, 6, res(5000, 5000, { items: { speedup_1h: 1 } })),
+        q(5, 'Use 10 minutes of speed-ups', 10, (s) => stat(s, 'speedupMinutes'), res(2000, 2000, { items: { speedup_1m: 4 } }), { kind: 'screen', id: 'bag' }),
+        hq(5, 6, res(5000, 5000, { items: { speedup_5m: 1 } })),
       ],
-      reward: { currencies: { diamonds: 120, gold: 2000 }, items: { recruit_ticket: 4, food_box: 2, iron_box: 2, speedup_1h: 1 } },
+      reward: { currencies: { diamonds: 120, gold: 2000 }, items: { recruit_ticket: 4, food_box: 2, iron_box: 2, speedup_5m: 1 } },
     },
     {
       index: 5,
@@ -183,25 +183,25 @@ function handmade(): ChapterDef[] {
         heroLevel(6, 15, res(3000, 3000, { items: { exp_box: 2 } })),
         upgrade(6, 'tankcenter', 3, res(5000, 5000)),
         runner(6, 6, res(4000, 4000, { items: { skill_medal: 10 } })),
-        districts(6, 10, res(5000, 5000, { items: { speedup_1h: 1 } })),
-        hq(6, 7, res(8000, 8000, { items: { speedup_1h: 2 } })),
+        districts(6, 10, res(5000, 5000, { items: { speedup_5m: 1 } })),
+        hq(6, 7, res(8000, 8000, { items: { speedup_5m: 2 } })),
       ],
-      reward: { currencies: { diamonds: 150, gold: 4000 }, items: { recruit_ticket: 5, exp_box_l: 1, speedup_1h: 2 } },
+      reward: { currencies: { diamonds: 150, gold: 4000 }, items: { recruit_ticket: 5, exp_box_l: 1, speedup_5m: 2 } },
     },
     {
       index: 6,
       title: 'Think Tank',
       quests: [
         build(7, 'tech', res(6000, 6000)),
-        research(7, 1, res(5000, 5000, { items: { speedup_5m: 3 } })),
+        research(7, 1, res(5000, 5000, { items: { speedup_1m: 3 } })),
         upgrade(7, 'tech', 3, res(8000, 8000)),
         research(7, 5, res(8000, 8000, { currencies: { gold: 2000 } })),
         horde(7, 5, res(8000, 8000, { items: { stamina_potion: 2 } })),
         runner(7, 8, res(8000, 8000, { items: { skill_medal: 15 } })),
         districts(7, 14, res(10000, 10000)),
-        hq(7, 8, res(15000, 15000, { items: { speedup_1h: 2 } })),
+        hq(7, 8, res(15000, 15000, { items: { speedup_5m: 2 } })),
       ],
-      reward: { currencies: { diamonds: 200, gold: 8000 }, items: { recruit_ticket: 6, shard_universal_ssr: 10, speedup_8h: 1 } },
+      reward: { currencies: { diamonds: 200, gold: 8000 }, items: { recruit_ticket: 6, shard_universal_ssr: 10, speedup_1h: 1 } },
     },
     {
       index: 7,
@@ -210,11 +210,11 @@ function handmade(): ChapterDef[] {
         build(8, 'goldmine', res(10000, 10000)),
         upgrade(8, 'tech', 7, res(15000, 15000, { currencies: { gold: 4000 } })),
         power(8, 50000, res(15000, 15000, { items: { exp_box_l: 1 } })),
-        train(8, 1000, res(15000, 15000, { items: { speedup_1h: 1 } })),
+        train(8, 600, res(15000, 15000, { items: { speedup_5m: 1 } })),
         hordes(8, 10, res(15000, 15000, { items: { stamina_potion: 2 } })),
         research(8, 12, res(15000, 15000, { currencies: { gold: 5000 } })),
         districts(8, 20, res(20000, 20000)),
-        hq(8, 9, res(25000, 25000, { items: { speedup_8h: 1 } })),
+        hq(8, 9, res(25000, 25000, { items: { speedup_1h: 1 } })),
       ],
       reward: { currencies: { diamonds: 300, gold: 15000 }, items: { recruit_ticket: 8, shard_universal_ur: 5, food_box_l: 1, iron_box_l: 1 } },
     },
@@ -229,20 +229,21 @@ function generated(index: number): ChapterDef {
   const k = index - HANDMADE.length + 1; // 1, 2, 3...
   const ch = index + 1;
   const hqTarget = 9 + k;
-  const m = Math.pow(1.6, k);
-  const r = (n: number, extra: Reward = {}) => res(Math.round(20000 * m * n), Math.round(20000 * m * n), extra);
+  const m = Math.pow(1.3, k);
+  const r = (n: number, extra: Reward = {}) => res(Math.round(12000 * m * n), Math.round(12000 * m * n), extra);
   const rotate: BuildingType[] = ['wall', 'barracks', 'drill', 'tankcenter', 'hospital'];
-  const b = rotate[k % rotate.length];
+  void rotate;
+  const b = hqPrereqs(hqTarget).find((p) => p.type !== 'tech')?.type ?? 'wall';
   seq = 0;
   const quests: QuestDef[] = [
     upgrade(ch, b, hqTarget - 1, r(1)),
     upgrade(ch, 'tech', hqTarget - 1, r(1, { currencies: { gold: Math.round(5000 * m) } })),
-    districts(ch, 20 + k * 5, r(1.2, { items: { speedup_1h: 1 } })),
+    districts(ch, 20 + k * 5, r(1.2, { items: { speedup_5m: 1 } })),
     horde(ch, 5 + k * 2, r(1, { items: { stamina_potion: 2 } })),
-    train(ch, 1000 + k * 1000, r(1, { items: { speedup_1h: 1 } })),
+    train(ch, 500 + k * 500, r(1, { items: { speedup_5m: 1 } })),
     research(ch, 12 + k * 6, r(1)),
     power(ch, Math.round((50000 * Math.pow(1.5, k)) / 1000) * 1000, r(1.2, { items: { exp_box_l: 1 } })),
-    hq(ch, hqTarget, r(1.5, { items: { speedup_8h: 1 } })),
+    hq(ch, hqTarget, r(1.5, { items: { speedup_1h: 1 } })),
   ];
   // ids must be stable & unique per chapter
   quests.forEach((qd, i) => (qd.id = `g${ch}_${i}`));
@@ -252,7 +253,7 @@ function generated(index: number): ChapterDef {
     quests,
     reward: {
       currencies: { diamonds: 300 + k * 50, gold: Math.round(15000 * m) },
-      items: { recruit_ticket: 8, speedup_8h: 1, shard_universal_ssr: 10 },
+      items: { recruit_ticket: 8, speedup_1h: 1, shard_universal_ssr: 10 },
     },
   };
 }

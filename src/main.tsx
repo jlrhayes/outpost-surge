@@ -9,7 +9,7 @@ import { goTo, openScreen } from './core/nav';
 import { debugSkip, now, runTickers } from './core/tick';
 import { grant } from './core/economy';
 import type { ModeId } from './core/types';
-import { unlockAudio } from './core/audio';
+import { initPlatform } from './platform';
 
 // Module registrations (tickers, bonus/power providers, event listeners). Order-independent.
 import './init/meta';
@@ -24,12 +24,8 @@ function boot() {
   startTicking();
   startAutosave();
 
-  // Mobile browsers only allow audio after a user gesture.
-  const unlock = () => {
-    unlockAudio();
-    window.removeEventListener('pointerdown', unlock);
-  };
-  window.addEventListener('pointerdown', unlock);
+  // Back button / gesture, app pause-resume (autosave + audio), audio unlock on first tap.
+  initPlatform();
 
   // Dev-only test hooks: ?mode=runner&level=3 | ?mode=world | ?mode=base&screen=heroes, and window.__os.
   const q = new URLSearchParams(location.search);

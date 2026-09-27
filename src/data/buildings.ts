@@ -9,7 +9,7 @@ export const PRODUCER_CAP_HOURS = 10;
 export const SECOND_BUILDER_DIAMONDS = 500;
 export const MAX_BUILDERS = 2;
 /** Base free-finish window for construction (research may extend it via `free_finish_min`). */
-export const BASE_FREE_FINISH_MS = 5 * 60 * 1000;
+export const BASE_FREE_FINISH_MS = 2 * 60 * 1000;
 
 export type PlotKind = 'hq' | 'wall' | 'core' | 'res';
 
@@ -56,7 +56,7 @@ export interface BuildingDef {
 const STD_COST: number[] = (() => {
   const out = [0, 30, 90];
   for (let l = 3; l <= MAX_BUILDING_LEVEL; l++) {
-    const g = l <= 10 ? 1.7 : l <= 20 ? 1.55 : 1.37;
+    const g = l <= 10 ? 1.85 : l <= 20 ? 1.6 : 1.37;
     out[l] = out[l - 1] * g;
   }
   return out;
@@ -64,7 +64,7 @@ const STD_COST: number[] = (() => {
 
 /** Standard build time (seconds) to reach `level`. L1-2 seconds, ~1 min at L4, ~10 min at L8, ~1 h at L12. */
 const STD_TIME: number[] = (() => {
-  const head = [0, 3, 6, 20, 60, 140, 230, 380, 580, 840, 1200, 1800, 2700];
+  const head = [0, 3, 6, 20, 60, 140, 300, 520, 800, 1150, 1600, 2150, 2700];
   const out = head.slice();
   for (let l = head.length; l <= MAX_BUILDING_LEVEL; l++) out[l] = out[l - 1] * 1.27;
   return out;
@@ -198,7 +198,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     name: 'Gold Refinery',
     desc: 'Refines salvaged gold into coin. Coin is needed for advanced upgrades.',
     plot: 'res',
-    unlocks: [{ hq: 8 }, { hq: 12 }, { hq: 17 }],
+    unlocks: [{ hq: 8 }, { hq: 10 }, { hq: 15 }],
     costMult: 0.7,
     foodShare: 0.5,
     timeMult: 0.8,
@@ -320,7 +320,7 @@ export function upgradeCost(type: BuildingType, level: number): Cost {
     food: roundNice(total * d.foodShare),
     iron: roundNice(total * (1 - d.foodShare)),
   };
-  if (l >= 9) cost.gold = roundNice(total * Math.min(0.42, 0.26 + (l - 9) * 0.015));
+  if (l >= 9) cost.gold = roundNice(total * Math.min(0.32, 0.18 + (l - 9) * 0.012));
   if (!cost.food) delete cost.food;
   if (!cost.iron) delete cost.iron;
   return cost;
@@ -361,9 +361,9 @@ export function productionAt(type: BuildingType, level: number): number {
     case 'ironmine':
       return base;
     case 'goldmine':
-      return Math.round(base * 0.6);
+      return Math.round(base * 0.8);
     case 'trainingbase':
-      return 900 + 1100 * l + 40 * l * l; // L1 2K/h, L10 15.9K/h, L30 69K/h
+      return 1500 + 1700 * l + 60 * l * l; // L1 2K/h, L10 15.9K/h, L30 69K/h
     default:
       return 0;
   }
@@ -372,9 +372,9 @@ export function productionAt(type: BuildingType, level: number): number {
 /** Troops housed by one Parade Yard. */
 export function drillCapacityAt(level: number): number {
   const l = clampLv(level);
-  return l < 1 ? 0 : 150 * l + 5 * l * l;
+  return l < 1 ? 0 : 300 * l + 10 * l * l;
 }
-export const BASE_TROOP_CAPACITY = 200;
+export const BASE_TROOP_CAPACITY = 400;
 
 /** Beds in one Field Hospital. */
 export function hospitalBedsAt(level: number): number {

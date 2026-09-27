@@ -124,7 +124,7 @@ export function levelPayout(s: GameState, level: number, survivors: number, star
   if (level >= 9) currencies.gold = round50(level * 30 * mult);
   const items: Reward['items'] = {};
   if (firstClear) {
-    currencies.diamonds = 10;
+    currencies.diamonds = 5;
     const ch = chapterOf(level);
     if (isBossLevel(level)) {
       currencies.diamonds += 100 + 50 * (ch - 1);
