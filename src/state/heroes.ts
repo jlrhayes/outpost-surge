@@ -15,6 +15,8 @@ export interface HeroState {
   skillLevels: number[];
   /** Gear slot levels (gun, armor, chip, radar). 0 = not equipped. */
   gear: number[];
+  /** Level the hero joined at for free (new recruits join near the squad's level); "Reset hero" returns here. Missing = 1. */
+  baseLevel?: number;
 }
 
 export interface Squad {
@@ -34,7 +36,7 @@ export interface HeroesState {
 }
 
 export function newHeroState(id: string, level = 1): HeroState {
-  return { id, level, exp: 0, stars: 0, shards: 0, skillLevels: [1, 1, 1], gear: [0, 0, 0, 0] };
+  return { id, level, exp: 0, stars: 0, shards: 0, skillLevels: [1, 1, 1], gear: [0, 0, 0, 0], baseLevel: level };
 }
 
 export function defaultHeroesState(now: number): HeroesState {

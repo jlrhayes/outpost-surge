@@ -15,7 +15,7 @@ import { now } from '../core/tick';
 import { isUnlocked } from '../core/unlocks';
 import { sfx } from '../core/audio';
 import { fmt } from '../core/format';
-import { squadCombatants, squadPower, squadReady } from './heroes';
+import { squadBusy, squadCombatants, squadPower, squadReady, squadTroops as heroSquadTroops } from './heroes';
 import { simulateBattle, type BattleResult } from './battle';
 import { applyTroopLosses, bestTroopTier, totalTroops } from './troops';
 import { marchSizePerHero } from './buildings';
@@ -644,21 +644,17 @@ export function squadMarch(s: GameState, squadId: number): March | undefined {
   return s.world.marches.find((m) => m.squadId === squadId);
 }
 
-/** Soldiers this squad would take on a march (march size of its heroes, limited by troops at home). */
+/**
+ * Soldiers this squad would take on a march. Delegates to the heroes module (one shared squad capacity,
+ * squadTroopCap, incl. the `squad_capacity` research bonus; soldiers already away on marches are excluded),
+ * so march sizes always match what the squad fights with.
+ */
 export function squadTroops(s: GameState, squadId: number): number {
-  let cap = 0;
-  const combat = safeSquadCombatants(s, squadId);
-  if (combat.length) {
-    for (const c of combat) cap += marchSizePerHero(s, c.type === 'zombie' ? 'tank' : c.type);
-  } else {
-    const sq = s.heroes.squads.find((q) => q.id === squadId);
-    const heroes = sq ? sq.heroes.filter(Boolean).length : 0;
-    cap = heroes * marchSizePerHero(s, 'tank');
+  try {
+    return heroSquadTroops(s, squadId);
+  } catch (e) {
+    return 0;
   }
-  if (cap > 0) cap += getBonus(s, 'squad_capacity');
-  let away = 0;
-  for (const m of s.world.marches) if (m.squadId !== squadId) away += m.troops;
-  return Math.max(0, Math.min(cap, totalTroops(s) - away));
 }
 
 /** Resource load units the squad can carry. */
@@ -997,7 +993,7 @@ export function marchTargeting(s: GameState, entityId: string): March | undefine
 export function marchBlocker(s: GameState, squadId: number, e: WorldEntity, t = now()): string | null {
   if (!isUnlocked(s, 'world')) return 'The world map is locked';
   if (e.kind === 'pickup') return null;
-  if (squadMarch(s, squadId)) return `Squad ${squadId} is already on a march`;
+  if (squadBusy(s, squadId)) return `Squad ${squadId} is already on a march`;
   if (!squadReady(s, squadId)) return 'Assign heroes to this squad first';
   if (e.kind === 'horde' || e.kind === 'rival') {
     if (!safeSquadCombatants(s, squadId).length) return 'Assign heroes to this squad first';

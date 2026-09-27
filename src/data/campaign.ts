@@ -124,9 +124,22 @@ export const IDLE_CAP_HOURS = 8;
 export function idleRatesFor(cleared: number): { food: number; iron: number; gold: number; heroExp: number } {
   if (cleared <= 0) return { food: 0, iron: 0, gold: 0, heroExp: 0 };
   return {
-    food: 240 + 60 * cleared,
-    iron: 180 + 45 * cleared,
-    gold: cleared >= 8 ? 30 * (cleared - 7) : 0,
-    heroExp: 90 + 30 * cleared,
+    food: 600 + 250 * cleared,
+    iron: 450 + 190 * cleared,
+    gold: cleared > 7 ? 120 * (cleared - 7) : 0,
+    heroExp: 300 + 120 * cleared,
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Typed enemies (counter triangle). Zombies are type-less by default; bosses and some elite packs
+// carry a hero type so Tank > Missile > Aircraft > Tank matters when picking a squad.
+// ---------------------------------------------------------------------------------------------
+export type EnemyType = 'tank' | 'aircraft' | 'missile';
+/** Name prefix for typed (elite) zombie packs. Bosses keep their own names. */
+export const ELITE_PREFIX: Record<EnemyType, string> = { tank: 'Armored', aircraft: 'Leaping', missile: 'Volatile' };
+/** Boss types by boss index (district 5, 10, 15...): the first boss is weak to the starter Tank squad. */
+export const BOSS_TYPES: EnemyType[] = ['missile', 'aircraft', 'tank'];
+/** First district where an elite (typed) pack appears; from ELITE_DOUBLE_FROM the whole front row is typed. */
+export const ELITE_FROM = 6;
+export const ELITE_DOUBLE_FROM = 16;

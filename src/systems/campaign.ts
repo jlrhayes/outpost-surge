@@ -1,7 +1,7 @@
 // OWNER: heroes agent. District campaign: stage N = district N around the base.
 // game.heroes.campaign.stage = next district to fight. Also the idle "loot truck".
-import { game, mutate, type GameState } from '../core/store';
-import type { Combatant, Reward } from '../core/types';
+import { game, mutate, saveNow, type GameState } from '../core/store';
+import type { Combatant, HeroType, Reward } from '../core/types';
 import { emit } from '../core/events';
 import { grantIn } from '../core/economy';
 import { bonusMult } from '../core/bonuses';
@@ -9,12 +9,16 @@ import { now } from '../core/tick';
 import { hashSeed, mulberry32, pick } from '../core/rng';
 import { toast } from '../core/nav';
 import { applyTroopLosses } from './troops';
-import { combatPower, squadCombatants, squadReady, type BattleUnit } from './heroes';
-import { simulateBattle, startBattle, troopLosses, type BattleResult } from './battle';
-import { HEROES } from '../data/heroes';
+import { combatPower, squadBusy, squadCombatants, squadReady, squadTroopsByTier, type BattleUnit } from './heroes';
+import { simulateBattle, startBattle, troopLosses, weakTo, type BattleResult } from './battle';
+import { HEROES, TYPE_LABEL } from '../data/heroes';
 import {
   BOSS_NAMES,
+  BOSS_TYPES,
   DISTRICT_TROOP_LOSS,
+  ELITE_DOUBLE_FROM,
+  ELITE_FROM,
+  ELITE_PREFIX,
   IDLE_CAP_HOURS,
   ZOMBIE_KINDS,
   districtName,
@@ -36,6 +40,47 @@ export interface DistrictInfo {
   recommended: number;
   enemies: BattleUnit[];
   rewards: Reward;
+  /** Counter types carried by typed enemies (boss/elites), for the "Weak to ..." hint. */
+  enemyTypes: HeroType[];
+}
+
+const ENEMY_TYPES: HeroType[] = ['tank', 'aircraft', 'missile'];
+
+/** "Weak to Aircraft" style hint for a typed enemy. */
+export function counterHint(type: HeroType): string {
+  return `Weak to ${TYPE_LABEL[weakTo(type)]}`;
+}
+
+/**
+ * Gives an enemy unit a hero type for the counter triangle (Tank > Missile > Aircraft > Tank). Zombies keep
+ * `type: 'zombie'` (abilities, visuals, kill counts) and fight as `ctype`. Non-boss packs get an elite prefix
+ * ("Armored Mauler"). Exported so other modules (e.g. world-map hordes) can type their enemies too.
+ */
+export function typeEnemy<T extends Combatant>(unit: T, type: HeroType, rename = true): T & { ctype: HeroType } {
+  const u = unit as T & { ctype: HeroType };
+  u.ctype = type;
+  if (rename && unit.type === 'zombie' && !unit.model.toLowerCase().includes('boss') && !unit.name.startsWith(ELITE_PREFIX[type])) {
+    u.name = `${ELITE_PREFIX[type]} ${unit.name}`;
+  }
+  return u;
+}
+
+/**
+ * Types part of an enemy formation: the boss (if `bossType`), then `elites` non-boss units (front row first,
+ * heaviest packs first) with `eliteType` (default: picked from `seed`). Mutates and returns `units`.
+ */
+export function typeEnemies<T extends Combatant>(units: T[], opts: { seed: number; bossType?: HeroType; elites?: number; eliteType?: HeroType }): T[] {
+  for (const u of units) if (opts.bossType && u.model.toLowerCase().includes('boss')) typeEnemy(u, opts.bossType);
+  const n = opts.elites ?? 0;
+  if (n > 0) {
+    const type = opts.eliteType ?? ENEMY_TYPES[opts.seed % ENEMY_TYPES.length];
+    const weight = (u: T) => Object.values(ZOMBIE_KINDS).find((k) => k.model === u.model)?.weight ?? 1;
+    const pool = units
+      .filter((u) => !u.model.toLowerCase().includes('boss') && !(u as BattleUnit).ctype)
+      .sort((a, b) => Number(a.slot > 1) - Number(b.slot > 1) || weight(b) - weight(a) || a.slot - b.slot);
+    for (const u of pool.slice(0, n)) typeEnemy(u, type);
+  }
+  return units;
 }
 
 const cache = new Map<number, DistrictInfo>();
@@ -143,8 +188,15 @@ export function districtInfo(stage: number): DistrictInfo {
   const power = Math.round(districtPower(stage) * (boss ? 0.8 : 1));
   const units = stage === 1 ? 3 : stage === 2 ? 4 : 5;
   const enemies = zombieFormation(power, hashSeed('district' + stage), { level: stage, boss, bossName, uidPrefix: 'd' + stage, units: boss ? 4 : units });
+  // Counter triangle: bosses always carry a type; elite packs appear from district ELITE_FROM.
+  typeEnemies(enemies, {
+    seed: hashSeed('elite' + stage),
+    bossType: boss ? BOSS_TYPES[(stage / 5 - 1) % BOSS_TYPES.length] : undefined,
+    elites: boss ? 0 : stage >= ELITE_DOUBLE_FROM ? 2 : stage >= ELITE_FROM ? 1 : 0,
+  });
   let rec = 0;
   for (const e of enemies) rec += combatPower(e.maxHp, e.atk, e.def);
+  const enemyTypes = [...new Set(enemies.map((e) => e.ctype).filter((t): t is HeroType => !!t))];
   d = {
     stage,
     name: districtName(stage),
@@ -154,6 +206,7 @@ export function districtInfo(stage: number): DistrictInfo {
     recommended: Math.floor(rec * (boss ? 1.25 : 1.1)),
     enemies,
     rewards: districtRewards(stage),
+    enemyTypes,
   };
   cache.set(stage, d);
   return d;
@@ -171,22 +224,55 @@ export function zombiesKilled(defenders: Combatant[], result: BattleResult): num
   return n;
 }
 
-/** Starts the battle for the next district with the given squad. Returns false if the squad is empty. */
+/** Why a squad can't fight the next district right now (null = OK). */
+export function districtBattleBlocker(s: GameState, squadId: number): string | null {
+  if (squadBusy(s, squadId)) return `Squad ${squadId} is out on the world map. Wait for it to return or pick another squad.`;
+  if (!squadReady(s, squadId)) return 'Assign heroes to your squad first';
+  return null;
+}
+
+/**
+ * Fights the next district with the given squad. The battle is simulated up-front and its outcome (stage,
+ * rewards, wounded soldiers, events) is applied and saved immediately — the 3D scene only replays it, so
+ * closing the app during playback can neither lose a win nor dodge losses. Returns false if it can't start.
+ */
 export function startDistrictBattle(squadId = 1): boolean {
   const s = game;
-  if (!squadReady(s, squadId)) {
-    toast('Assign heroes to your squad first', 'bad');
+  const blocker = districtBattleBlocker(s, squadId);
+  if (blocker) {
+    toast(blocker, 'bad');
     return false;
   }
   const stage = s.heroes.campaign.stage;
   const info = districtInfo(stage);
   const attackers = squadCombatants(s, squadId);
+  // The tiers that actually fight (losses are taken from these).
+  const fought = squadTroopsByTier(s, squadId);
   const seed = (hashSeed('d' + stage) ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
   const result = simulateBattle(attackers, info.enemies, seed);
   const won = result.winner === 'A';
   const lost = troopLosses(attackers, result, DISTRICT_TROOP_LOSS);
+  const killed = zombiesKilled(info.enemies, result);
+
+  let loss = { wounded: 0, died: 0 };
+  mutate((st) => {
+    if (st.heroes.campaign.stage !== stage) return;
+    if (lost > 0) loss = applyTroopLosses(st, lost, fought);
+    st.heroes.campaign.lastResult = won ? 'win' : 'loss';
+    if (won) {
+      grantIn(st, info.rewards);
+      // The loot truck starts rolling once the first district is cleared.
+      if (stage === 1) st.heroes.campaign.idleClaimedAt = now();
+      st.heroes.campaign.stage = stage + 1;
+    }
+  });
+  saveNow();
+  if (killed > 0) emit('zombies:killed', { count: killed });
+  if (won) emit('campaign:stageCleared', { stage });
+
   const notes: string[] = [];
-  if (lost > 0) notes.push(`Wounded soldiers: ${lost}`);
+  if (loss.wounded > 0) notes.push(`Wounded soldiers: ${loss.wounded} (heal them in the Hospital)`);
+  if (loss.died > 0) notes.push(`Soldiers lost (hospital full): ${loss.died}`);
   if (!won) notes.push(result.timeout ? 'Out of time! Attackers must win within 60 s.' : 'Your squad was defeated.');
   startBattle({
     title: `District ${stage}`,
@@ -199,27 +285,11 @@ export function startDistrictBattle(squadId = 1): boolean {
     rewards: won ? info.rewards : undefined,
     notes,
     returnTo: 'base',
-    onFinish: (res) => finishDistrictBattle(stage, info, attackers, res, lost),
+    squadId,
+    // Outcome already applied above: leaving the result screen only navigates.
+    onFinish: () => {},
   });
   return true;
-}
-
-function finishDistrictBattle(stage: number, info: DistrictInfo, attackers: Combatant[], res: BattleResult, lost: number): void {
-  const won = res.winner === 'A';
-  if (game.heroes.campaign.stage !== stage) return; // already applied
-  const killed = zombiesKilled(info.enemies, res);
-  mutate((s) => {
-    if (lost > 0) applyTroopLosses(s, lost);
-    s.heroes.campaign.lastResult = won ? 'win' : 'loss';
-    if (won) {
-      grantIn(s, info.rewards);
-      // The loot truck starts rolling once the first district is cleared.
-      if (stage === 1) s.heroes.campaign.idleClaimedAt = now();
-      s.heroes.campaign.stage = stage + 1;
-    }
-  });
-  if (killed > 0) emit('zombies:killed', { count: killed });
-  if (won) emit('campaign:stageCleared', { stage });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -271,8 +341,6 @@ export function claimIdleLoot(): Reward | null {
     grantIn(s, loot.reward);
     s.heroes.campaign.idleClaimedAt = now();
   });
-  for (const [k, v] of Object.entries(loot.reward.currencies)) {
-    if (v && v > 0) emit('resource:collected', { resource: k as any, amount: v });
-  }
+  // No 'resource:collected' here: that event means "collected building production" (daily task / stats).
   return loot.reward;
 }
