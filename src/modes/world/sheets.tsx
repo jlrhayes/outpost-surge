@@ -40,6 +40,7 @@ import { requestCam, selectedEntity, selectedMarch } from './bus';
 import { defaultSquad, hasScreen, PowerCompare, RewardList, Sheet, showRewards, SquadPicker, WIcon } from './parts';
 import { LineupTypes } from './defense';
 import { counterHint } from '../../systems/campaign';
+import { buildingName } from '../../data/buildings';
 
 // ------------------------------------------------------------------ entity sheet
 
@@ -356,7 +357,7 @@ function BaseSheet(props: { s: GameState; screenKey: number }) {
   return (
     <Sheet screenKey={props.screenKey} title={s.player.name || 'Commander'} subtitle="Your outpost" icon={<WIcon name="base" size={34} />} accent="#5ab8ff">
       <div class="wm-stat-row">
-        <span>Headquarters</span>
+        <span>{buildingName('hq')}</span>
         <b>Lv {hqLevel(s)}</b>
       </div>
       <div class="wm-stat-row">

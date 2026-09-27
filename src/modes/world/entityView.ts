@@ -22,6 +22,7 @@ import { BadgeLayer, glyph, pillBadge, pinBadge } from './badges';
 import { cacheGeometry, campGeometry, digGeometry, wallRingGeometry } from './geo';
 import { Batch, sceneryMaterial } from './terrainView';
 import type { PropKind } from '../../three/models';
+import { buildingName } from '../../data/buildings';
 
 export interface PickPoint {
   id: string;
@@ -488,7 +489,7 @@ export class EntityView {
     const pw = totalPower(s);
     this.badges.add(
       `base:${s.player.name}:${hq}:${fmt(pw)}`,
-      pillBadge({ text: s.player.name || 'Commander', sub: `HQ ${hq} · Power ${fmt(pw)}`, bg: 'rgba(16,48,92,0.94)', border: '#5ab8ff', maxW: 250 }),
+      pillBadge({ text: s.player.name || 'Commander', sub: `${buildingName('hq')} Lv ${hq} · Power ${fmt(pw)}`, bg: 'rgba(16,48,92,0.94)', border: '#5ab8ff', maxW: 250 }),
       0,
       8.2,
       0,

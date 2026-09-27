@@ -26,6 +26,7 @@ import {
   type IncomingRaid,
 } from '../../systems/world';
 import { PowerCompare, WIcon } from './parts';
+import { buildingName } from '../../data/buildings';
 
 /** Row of unit-type icons for a themed rival formation (+ the counter hint). */
 export function LineupTypes(props: { theme: D.RivalTheme }) {
@@ -104,7 +105,7 @@ export function DefenseModal(props: { screenKey: number }) {
         <div class="wm-dim small wm-center">
           {raidsActive(s, t)
             ? 'No raid in sight. Rival outposts send a raid party every few hours; you get a warning minutes before it lands.'
-            : `Rival outposts start raiding at HQ ${D.RAID_MIN_HQ}.`}
+            : `Rival outposts start raiding at ${buildingName('hq')} Lv ${D.RAID_MIN_HQ}.`}
         </div>
       )}
       <div class="wm-section-title">Defenders</div>
