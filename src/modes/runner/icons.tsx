@@ -20,7 +20,7 @@ export const RN_SVG: Record<string, string> = {
   walker:
     '<circle cx="12" cy="6" r="4" fill="#8fb070" stroke="#3a5a2a" stroke-width="1.4"/><path d="M7 22l1-9h8l1 9z" fill="#6a5a8a" stroke="#2a2440" stroke-width="1.4"/><path d="M8 13l-4 2M16 13l5 1" stroke="#8fb070" stroke-width="2.4" stroke-linecap="round"/>',
   runner:
-    '<path d="M3 13c2-3 6-4 10-3l4-3 3 1-2 3 3 3-2 1-3-2-3 1 1 6h-2l-2-5-4 1-1 4H5l0-5z" fill="#8a9a70" stroke="#3a4a2a" stroke-width="1.3" stroke-linejoin="round"/>',
+    '<circle cx="15" cy="4.5" r="3" fill="#9aa68a" stroke="#3a4a2a" stroke-width="1.3"/><path d="M13 8l-4 6 4 1-2 7M13 8l3 6 4 1M12 11l-5-1" stroke="#8a5a3a" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   brute:
     '<circle cx="12" cy="5.5" r="3.5" fill="#6f8f4f" stroke="#2f4a1f" stroke-width="1.4"/><path d="M3 22l1-10c1-2 3-3 8-3s7 1 8 3l1 10z" fill="#5a4a7a" stroke="#241a3a" stroke-width="1.4"/><path d="M4 12l-2 6M20 12l2 6" stroke="#6f8f4f" stroke-width="3" stroke-linecap="round"/>',
   elite:
@@ -43,11 +43,4 @@ export function registerRunnerIcons(): void {
   for (const [name, body] of Object.entries(RN_SVG)) {
     registerIcon('rn_' + name, (s) => <svg width={s} height={s} viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: body }} />);
   }
-}
-
-/** Icon for a reward entry (item ids the meta module might not have registered yet). */
-export function rewardIconName(key: string): string {
-  if (key === 'recruit_ticket') return 'rn_ticket';
-  if (key.startsWith('speedup')) return 'rn_speed';
-  return key;
 }

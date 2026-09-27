@@ -1,11 +1,11 @@
 // OWNER: runner agent. Special Ops progression: level/chapter gating, rewards, recording results.
 import { game, mutate, type GameState } from '../../core/store';
-import { grantIn, addStat } from '../../core/economy';
+import { grantIn } from '../../core/economy';
 import { emit } from '../../core/events';
 import { isUnlocked, unlockHint } from '../../core/unlocks';
 import { hqLevel } from '../../systems/buildings';
 import { bestTroopTier } from '../../systems/troops';
-import type { CurrencyId, Reward } from '../../core/types';
+import type { Reward } from '../../core/types';
 import { CHAPTERS, LEVEL_COUNT, chapterOf, isBossLevel, LEVELS_PER_CHAPTER } from '../../data/runner';
 
 /** Max soldiers converted into troops per level (first clear) and on replays. */
@@ -120,7 +120,6 @@ export function recordRun(sum: RunSummary): RunOutcome {
   mutate((s) => {
     const r = s.runner;
     r.runs++;
-    addStat(s, 'runnerRuns');
     if (sum.intro) {
       if (sum.won) {
         stars = starsFor(sum.survivors, sum.peak);
@@ -139,21 +138,15 @@ export function recordRun(sum: RunSummary): RunOutcome {
     reward = levelReward(s, sum.level, sum.survivors, stars, firstClear);
     grantIn(s, reward);
     r.wins++;
-    addStat(s, 'runnerWins');
     if (stars > prevStars) r.stars[sum.level] = stars;
     if (sum.survivors > (r.best[sum.level] ?? 0)) r.best[sum.level] = sum.survivors;
     if (firstClear) r.level = Math.min(LEVEL_COUNT + 1, sum.level + 1);
     s.stats.runnerBestLevel = Math.max(s.stats.runnerBestLevel ?? 0, sum.level);
   });
-  // The opening run reports level 0 so "clear Special Ops level N" quests aren't satisfied by the tutorial.
-  emit('runner:finished', { level: sum.intro ? 0 : sum.level, won: sum.won, stars });
+  // Events after the mutate (quests/daily/stats listen). The tutorial run doesn't count as a Special Ops
+  // run (meta derives runnerWins/runnerPlays stats from this event).
+  if (!sum.intro) emit('runner:finished', { level: sum.level, won: sum.won, stars });
   if (sum.kills > 0) emit('zombies:killed', { count: sum.kills });
-  const rw = reward as Reward | null;
-  if (rw?.currencies) {
-    for (const [k, v] of Object.entries(rw.currencies) as [CurrencyId, number][]) {
-      if (v > 0) emit('resource:collected', { resource: k, amount: v });
-    }
-  }
   let next: number | null = null;
   let nextLock: string | null = null;
   if (!sum.intro && sum.won && sum.level < LEVEL_COUNT) {

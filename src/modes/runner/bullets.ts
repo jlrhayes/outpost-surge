@@ -1,11 +1,13 @@
 // OWNER: runner agent. Pooled tracer bullets (one InstancedMesh). Each visual bullet carries the pooled
 // damage of many soldiers' shots, so a 400-soldier squad costs the same as a 20-soldier one.
 import * as THREE from 'three';
+import { bulletGeometry, vcGlowMaterial } from '../../three/models';
 import { SIM } from '../../data/runner';
 
 const tmpM = new THREE.Matrix4();
 const tmpV = new THREE.Vector3();
-const tmpQ = new THREE.Quaternion();
+// The model points along +Z; our bullets fly up the road toward -Z.
+const tmpQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 const tmpS = new THREE.Vector3(1, 1, 1);
 
 export class Bullets {
@@ -17,13 +19,10 @@ export class Bullets {
   readonly d = new Float32Array(this.cap);
   readonly start = new Float32Array(this.cap);
   readonly dmg = new Float32Array(this.cap);
-  private geo: THREE.BufferGeometry;
-  private mat: THREE.MeshBasicMaterial;
 
   constructor() {
-    this.geo = new THREE.BoxGeometry(0.13, 0.13, 1.2);
-    this.mat = new THREE.MeshBasicMaterial({ color: 0xfff3a0, toneMapped: false });
-    this.mesh = new THREE.InstancedMesh(this.geo, this.mat, this.cap);
+    // Cached model geometry + shared unlit material: never disposed here.
+    this.mesh = new THREE.InstancedMesh(bulletGeometry(), vcGlowMaterial(), this.cap);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
   }
@@ -56,9 +55,9 @@ export class Bullets {
   render(): void {
     for (let i = 0; i < this.n; i++) {
       tmpV.set(this.x[i], this.y[i], -this.d[i]);
-      // Stretch young tracers less so they don't poke out behind the muzzle.
-      const len = Math.min(1, (this.d[i] - this.start[i]) / 0.9 + 0.3);
-      tmpS.set(1, 1, len);
+      // Stretch into a streak once it has left the muzzle.
+      const len = Math.min(2.4, (this.d[i] - this.start[i]) * 1.4 + 0.6);
+      tmpS.set(1.5, 1.5, len);
       tmpM.compose(tmpV, tmpQ, tmpS);
       this.mesh.setMatrixAt(i, tmpM);
     }
@@ -73,7 +72,5 @@ export class Bullets {
 
   dispose(): void {
     this.mesh.dispose();
-    this.geo.dispose();
-    this.mat.dispose();
   }
 }

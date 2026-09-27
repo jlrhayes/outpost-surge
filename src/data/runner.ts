@@ -212,7 +212,7 @@ interface ChapterTune {
 }
 
 const TUNE: ChapterTune[] = [
-  { speed: 8.2, start: 5, alpha0: 0.5, alpha1: 0.72, bossSec: 5, red: 0.2, peak: 200 },
+  { speed: 8.2, start: 5, alpha0: 0.44, alpha1: 0.72, bossSec: 5, red: 0.2, peak: 200 },
   { speed: 8.6, start: 7, alpha0: 0.66, alpha1: 0.86, bossSec: 5.5, red: 0.35, peak: 300 },
   { speed: 9.0, start: 9, alpha0: 0.78, alpha1: 0.98, bossSec: 6, red: 0.5, peak: 420 },
   { speed: 9.3, start: 11, alpha0: 0.9, alpha1: 1.1, bossSec: 6.5, red: 0.6, peak: 560 },
@@ -373,7 +373,7 @@ export function levelDef(level: number, intro = false): LevelDef {
   const walkerHp = waves[waves.length - 1].hp.walker;
   const captions: CaptionDef[] = [];
   if (level === 1) captions.push({ d: 14, text: 'Shoot red gates to raise their numbers!', dur: 3.5 });
-  if (level === 3) captions.push({ d: 14, text: 'Fast dogs incoming: shoot them first!', dur: 3.5 });
+  if (level === 3) captions.push({ d: 14, text: 'Sprinters incoming: shoot the fast ones first!', dur: 3.5 });
   if (level === 5) captions.push({ d: 14, text: 'Brutes crush several soldiers at once. Focus fire!', dur: 3.5 });
   if (level === 10) captions.push({ d: 14, text: 'Elite zombies take a beating. Keep your squad big!', dur: 3.5 });
 
@@ -610,7 +610,7 @@ function introLevel(): LevelDef {
       { d: 154, hp: { walker: 3, runner: 1, elite: 6, brute: 30 }, spawns: block(16, 4, 0, 5) },
       { d: 264, hp: { walker: 4, runner: 3, elite: 8, brute: 90 }, spawns: [...block(24, 6), W('brute', 0, 5), W('runner', -1, 9), W('runner', 0, 9), W('runner', 1, 9)] },
     ],
-    boss: { name: 'The Gatecrusher', hp: 6000, speed: 1.9, smash: 8, scale: 1.7, big: true, minionEvery: 0, minionHp: 1 },
+    boss: { name: 'The Gatecrusher', hp: 8000, speed: 1.9, smash: 8, scale: 1.7, big: true, minionEvery: 0, minionHp: 1 },
     captions: [
       { d: 2, text: 'The city fell overnight. Your squad is the last one moving.', dur: 3.2 },
       { d: 22, text: 'Drag left or right to steer your squad', dur: 3.2 },

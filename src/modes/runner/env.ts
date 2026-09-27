@@ -158,11 +158,14 @@ export class RunnerEnv {
         band: 'near',
         spacing: 7.5,
         kinds: [
-          ['cone', 1.2],
-          ['sandbag', 1],
-          ['barrel', 0.6],
-          ['fence', 0.8],
-          ['rubble', 0.6],
+          ['cone', 1.1],
+          ['sandbag', 0.9],
+          ['barrel', 0.5],
+          ['fence', 0.6],
+          ['rubble', 0.5],
+          ['tire', 0.6],
+          ['hedgehog', 0.5],
+          ['roadblock', 0.4],
         ],
         fill: hi ? 0.65 : 0.4,
       },
@@ -170,12 +173,15 @@ export class RunnerEnv {
         band: 'mid',
         spacing: 9,
         kinds: [
-          ['car_wreck', 1.4],
-          ['rock', 0.8],
+          ['car_wreck', 1.3],
+          ['rock', 0.7],
           ['tree', 0.9 * green],
           ['pine', 0.7 * green],
-          ['rubble', 0.8],
-          ['sandbag', 0.4],
+          ['bush', 0.8 * green],
+          ['rubble', 0.6],
+          ['container', 0.5],
+          ['tent', 0.25],
+          ['sandbag', 0.3],
         ],
         fill: hi ? 0.85 : 0.55,
       },
@@ -186,6 +192,7 @@ export class RunnerEnv {
           ['ruinA', 1],
           ['ruinB', 1],
           ['ruinC', 1],
+          ['ruin', 0.8],
         ],
         fill: 1,
       },
@@ -239,7 +246,7 @@ export class RunnerEnv {
         break;
       case 'near':
         x = 4.9 + r() * 0.9;
-        yaw = sl.kind === 'fence' || sl.kind === 'sandbag' ? Math.PI / 2 + (r() - 0.5) * 0.3 : r() * 6.28;
+        yaw = sl.kind === 'fence' || sl.kind === 'sandbag' || sl.kind === 'roadblock' ? Math.PI / 2 + (r() - 0.5) * 0.3 : r() * 6.28;
         sc = 0.9 + r() * 0.3;
         break;
       case 'mid':
@@ -260,7 +267,7 @@ export class RunnerEnv {
     this.s.set(sc, sc * sy, sc);
     this.m.compose(this.v, this.q, this.s);
     sl.mesh.setMatrixAt(sl.index, this.m);
-    if (sl.band === 'far' || sl.kind === 'rubble') {
+    if (sl.kind === 'ruinA' || sl.kind === 'ruinB' || sl.kind === 'ruinC' || sl.kind === 'rubble') {
       const p = this.palette;
       this.c.setHex(r() < 0.5 ? p.ruin : p.ruinAlt);
       const f = 0.9 + r() * 0.25;

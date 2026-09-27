@@ -2,30 +2,28 @@
 // texture. Every bullet hit raises the value (add: +1 per hit; mul/weapon: one step per `step` hits),
 // so a red gate can be shot through zero to blue; the panel recolours live.
 import * as THREE from 'three';
-import { buildColored, P } from '../../three/models';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { buildColored, gatePostGeometry, P } from '../../three/models';
 import { gateIsGood, mulStepUp, SIM, type GateDef, type GateKind } from '../../data/runner';
 
 const CW = 256;
-const CH = 172;
+const CH = 160;
 const PANEL_W = 3.72;
-const PANEL_H = 2.5;
+const PANEL_H = 2.32;
 
 let frameGeo: THREE.BufferGeometry | null = null;
+/** Two of the art kit's gate posts (one each side of the panel) + a slim top rail, merged: 1 draw call. */
 function gateFrameGeometry(): THREE.BufferGeometry {
   if (!frameGeo) {
-    const w = 0xffffff;
-    const dk = 0x3a3f48;
-    frameGeo = buildColored([
-      { geom: P.box, color: w, pos: [-1.95, 1.55, 0], scale: [0.26, 3.1, 0.26] },
-      { geom: P.box, color: w, pos: [1.95, 1.55, 0], scale: [0.26, 3.1, 0.26] },
-      { geom: P.box, color: w, pos: [0, 3.05, 0], scale: [4.16, 0.3, 0.32] },
-      { geom: P.box, color: dk, pos: [-1.95, 0.1, 0], scale: [0.55, 0.2, 0.55] },
-      { geom: P.box, color: dk, pos: [1.95, 0.1, 0], scale: [0.55, 0.2, 0.55] },
-      { geom: P.box, color: dk, pos: [-1.95, 1.0, 0.0], scale: [0.3, 0.14, 0.3] },
-      { geom: P.box, color: dk, pos: [1.95, 1.0, 0.0], scale: [0.3, 0.14, 0.3] },
-      { geom: P.box, color: dk, pos: [-1.95, 2.1, 0.0], scale: [0.3, 0.14, 0.3] },
-      { geom: P.box, color: dk, pos: [1.95, 2.1, 0.0], scale: [0.3, 0.14, 0.3] },
-    ]);
+    const post = gatePostGeometry();
+    const l = post.clone().translate(-1.95, 0, 0);
+    const r = post.clone().translate(1.95, 0, 0);
+    const rail = buildColored([{ geom: P.box, color: 0xe9eef3, pos: [0, 2.72, 0], scale: [3.6, 0.12, 0.14] }]);
+    const parts = [l, r, rail].map((g) => (g.index ? g.toNonIndexed() : g));
+    // Keep only the attributes every part shares so the merge can't fail.
+    const names = Object.keys(parts[0].attributes).filter((n) => parts.every((p) => p.getAttribute(n)));
+    for (const p of parts) for (const n of Object.keys(p.attributes)) if (!names.includes(n)) p.deleteAttribute(n);
+    frameGeo = mergeGeometries(parts, false) ?? l;
   }
   return frameGeo;
 }
@@ -150,7 +148,7 @@ export class GateView {
   private recolor(): void {
     this.good = this.isGood;
     const c = this.good ? 0x3aa0ff : 0xff4a3a;
-    this.frameMat.color.setHex(this.good ? 0x9fd0ff : 0xff9a8a);
+    this.frameMat.color.setHex(this.good ? 0xd6ebff : 0xffd6cc);
     this.glowMat.color.setHex(c);
     this.dirty = true;
   }

@@ -6,11 +6,11 @@ import { fmt } from '../../core/format';
 import { sfx } from '../../core/audio';
 import { Icon } from '../../ui/components/Icon';
 import { Btn } from '../../ui/components/common';
-import type { Reward } from '../../core/types';
 import { levelLabel } from '../../data/runner';
 import { runActions, runHud } from './runState';
 import type { RunOutcome } from './progress';
-import { registerRunnerIcons, rewardIconName } from './icons';
+import { registerRunnerIcons } from './icons';
+import { RewardList } from '../../ui/components/RewardList';
 import './runner.css';
 
 registerRunnerIcons();
@@ -25,7 +25,7 @@ export function RunnerHud(props: { params?: any }) {
       <WeaponChips />
       <Caption />
       <Banner />
-      {runHud.dragHint.value && !result && <DragHint />}
+      {runHud.dragHint.value && !result && !paused && <DragHint />}
       {paused && !result && <PauseMenu />}
       {result && <ResultOverlay r={result} />}
     </div>
@@ -210,7 +210,7 @@ function ResultOverlay(props: { r: RunOutcome }) {
             <div class="rn-result-sub">
               {r.intro ? 'Starter supplies' : r.firstClear ? 'First clear rewards' : 'Replay rewards'}
             </div>
-            <RewardList reward={r.reward} />
+            <RewardList reward={r.reward} size={48} animate />
             {!r.intro && r.reward.troops && <div class="rn-result-note">Surviving soldiers joined your army as troops.</div>}
           </>
         ) : r.won ? null : (
@@ -266,29 +266,5 @@ function resultButtons(r: RunOutcome) {
         </div>
       )}
     </>
-  );
-}
-
-export function RewardList(props: { reward: Reward; small?: boolean }) {
-  const r = props.reward;
-  const rows: { icon: string; text: string; key: string }[] = [];
-  if (r.troops) {
-    for (const [tier, n] of Object.entries(r.troops)) if (n > 0) rows.push({ icon: 'troops', text: `T${tier} ×${n}`, key: 'troops' + tier });
-  }
-  if (r.currencies) {
-    for (const [k, v] of Object.entries(r.currencies)) if ((v ?? 0) > 0) rows.push({ icon: k, text: fmt(v as number), key: k });
-  }
-  if (r.items) {
-    for (const [k, v] of Object.entries(r.items)) if ((v ?? 0) > 0) rows.push({ icon: rewardIconName(k), text: `×${v}`, key: k });
-  }
-  return (
-    <div class={'rn-rewards ' + (props.small ? 'small' : '')}>
-      {rows.map((row, i) => (
-        <div class="rn-reward" key={row.key} style={{ animationDelay: `${0.25 + i * 0.07}s` }}>
-          <Icon name={row.icon} size={props.small ? 20 : 28} />
-          <span>{row.text}</span>
-        </div>
-      ))}
-    </div>
   );
 }

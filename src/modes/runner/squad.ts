@@ -2,7 +2,7 @@
 // (golden-angle spiral) formation that smoothly re-packs when the count changes. The true count can be
 // far above the rendered cap; the floating label shows the real number.
 import * as THREE from 'three';
-import { soldierGeometry, vcMaterial } from '../../three/models';
+import { soldierGeometry, soldierHeavyGeometry, vcMaterial } from '../../three/models';
 import { SIM } from '../../data/runner';
 import type { Fx } from './fx';
 
@@ -16,7 +16,12 @@ const tmpV = new THREE.Vector3();
 const tmpS = new THREE.Vector3();
 
 export class Squad {
+  readonly group = new THREE.Group();
   readonly mesh: THREE.InstancedMesh;
+  /** Upgraded heavy gunners drawn at the core of the blob (a few figures only). */
+  readonly heavyMesh: THREE.InstancedMesh;
+  /** How many of the rendered figures are drawn as heavy gunners. */
+  heavies = 0;
   readonly cap: number;
   /** True soldier count. */
   count = 0;
@@ -41,6 +46,11 @@ export class Squad {
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = quality === 'high';
+    this.heavyMesh = new THREE.InstancedMesh(soldierHeavyGeometry(), vcMaterial(), 8);
+    this.heavyMesh.count = 0;
+    this.heavyMesh.frustumCulled = false;
+    this.heavyMesh.castShadow = quality === 'high';
+    this.group.add(this.mesh, this.heavyMesh);
     this.ox = new Float32Array(this.cap);
     this.od = new Float32Array(this.cap);
     this.sc = new Float32Array(this.cap);
@@ -95,7 +105,6 @@ export class Squad {
     }
     this.count = n;
     this.rendered = newR;
-    this.mesh.count = newR;
     this.relayout();
   }
 
@@ -120,6 +129,7 @@ export class Squad {
   update(dt: number, t: number): void {
     const k = Math.min(1, dt * 7);
     const lim = SIM.roadHalf + 1.2;
+    const hv = Math.min(this.heavies, 8, this.rendered);
     for (let i = 0; i < this.rendered; i++) {
       this.target(i, this.tt);
       this.ox[i] += (this.tt.x - this.ox[i]) * k;
@@ -147,16 +157,21 @@ export class Squad {
       tmpE.set(pitch, Math.PI + roll * 0.6, roll);
       tmpQ.setFromEuler(tmpE);
       const pop = this.sc[i] < 1 ? this.sc[i] * (1 + 0.35 * Math.sin(this.sc[i] * Math.PI)) : 1;
-      const s = SCALE * pop;
+      const s = SCALE * pop * (i < hv ? 0.95 : 1);
       tmpS.set(s, s, s);
       tmpV.set(x, y, -(this.d + this.od[i]));
       tmpM.compose(tmpV, tmpQ, tmpS);
-      this.mesh.setMatrixAt(i, tmpM);
+      if (i < hv) this.heavyMesh.setMatrixAt(i, tmpM);
+      else this.mesh.setMatrixAt(i - hv, tmpM);
     }
+    this.mesh.count = this.rendered - hv;
+    this.heavyMesh.count = hv;
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.heavyMesh.instanceMatrix.needsUpdate = true;
   }
 
   dispose(): void {
     this.mesh.dispose();
+    this.heavyMesh.dispose();
   }
 }

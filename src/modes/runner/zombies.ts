@@ -154,7 +154,8 @@ export class Horde {
       const s = Math.sin(t * f + z.phase);
       const bob = Math.abs(s) * (run ? 0.12 : brute ? 0.1 : 0.06);
       const roll = s * (run ? 0.06 : brute ? 0.1 : 0.14);
-      const pitch = run ? 0.45 : brute ? 0.12 : 0.18 + Math.sin(t * 2 + z.phase) * 0.05;
+      // The models are already posed (hunched walker, leaning sprinter): only a little extra sway.
+      const pitch = run ? 0.08 : brute ? 0.04 : 0.05 + Math.sin(t * 2 + z.phase) * 0.05;
       const riseY = (1 - z.rise) * -1.4;
       tmpE.set(pitch, Math.sin(t * 0.7 + z.phase) * 0.15, roll);
       tmpQ.setFromEuler(tmpE);

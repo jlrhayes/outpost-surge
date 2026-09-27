@@ -33,8 +33,8 @@ const BARREL_SPAWN = 90;
 export class RunnerMode implements GameMode {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(56, 1, 0.1, 400);
-  private hemi = new THREE.HemisphereLight(0xe4f0ff, 0x7a6a50, 1.55);
-  private sun = new THREE.DirectionalLight(0xfff0d8, 2.3);
+  private hemi = new THREE.HemisphereLight(0xe8f4ff, 0x7a8a5c, 1.5);
+  private sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
   private camScale = 1.3;
   private camBoss = 0;
 
@@ -66,6 +66,8 @@ export class RunnerMode implements GameMode {
   private rateMult = 1;
   private dmgMult = 1;
   private multi = 0;
+  /** Weapon upgrades collected this run (shown as heavy gunners in the squad). */
+  private upgrades = 0;
   private dmgBonus = 1;
   private fireAcc = 0;
   private flashAcc = 0;
@@ -162,7 +164,7 @@ export class RunnerMode implements GameMode {
     this.fx = new Fx(this.overlay, this.camera, this.quality);
     this.scene.add(this.fx.group);
     this.squad = new Squad(this.quality);
-    this.scene.add(this.squad.mesh);
+    this.scene.add(this.squad.group);
     this.horde = new Horde(hi);
     this.scene.add(this.horde.group);
     this.helpers = new Helpers(hi);
@@ -190,6 +192,7 @@ export class RunnerMode implements GameMode {
     this.rateMult = 1;
     this.dmgMult = 1;
     this.multi = 0;
+    this.upgrades = 0;
     this.dmgBonus = intro ? 1 : bonusMult(game, 'runner_damage_pct');
     this.fireAcc = 0;
     this.simT = 0;
@@ -408,15 +411,7 @@ export class RunnerMode implements GameMode {
     this.updateBullets(dt);
 
     // Zombies.
-    this.horde.update(
-      dt,
-      sq.x,
-      sq.d,
-      sq.radius,
-      sq.depth,
-      (z) => this.zombieContact(z),
-      (z) => this.horde.remove(z),
-    );
+    this.horde.update(dt, sq.x, sq.d, sq.radius, sq.depth, this.onZombieContact, this.onZombiePassed);
 
     // Barrels.
     for (const b of this.barrels) {
@@ -779,6 +774,10 @@ export class RunnerMode implements GameMode {
     );
   }
 
+  // Bound once (no per-frame closures).
+  private onZombieContact = (z: Zombie) => this.zombieContact(z);
+  private onZombiePassed = (z: Zombie) => this.horde.remove(z);
+
   private zombieContact(z: Zombie): void {
     const n = z.contact;
     const big = z.kind === 'brute';
@@ -830,16 +829,19 @@ export class RunnerMode implements GameMode {
       case 'rate':
         this.rateMult = Math.min(4, this.rateMult * (1 + b.amount / 100));
         this.fx.float(x, 2.4, d, 'RAPID FIRE!', 'good');
+        this.upgrades++;
         this.pushWeapon();
         break;
       case 'dmg':
         this.dmgMult = Math.min(8, this.dmgMult * (1 + b.amount / 100));
         this.fx.float(x, 2.4, d, 'POWER SHOT!', 'good');
+        this.upgrades++;
         this.pushWeapon();
         break;
       case 'multi':
         this.multi = Math.min(SIM.maxMulti, this.multi + b.amount);
         this.fx.float(x, 2.4, d, 'MULTI-SHOT!', 'good');
+        this.upgrades++;
         this.pushWeapon();
         break;
       case 'tank':
@@ -881,11 +883,14 @@ export class RunnerMode implements GameMode {
     const before = sq.count;
     let n = before;
     if (g.kind === 'add') n = before + g.value;
-    else if (g.kind === 'mul') n = g.value > 0 ? before * g.value : Math.floor(before / -g.value);
+    // Dividing never wipes the squad out on its own (a minus gate can).
+    else if (g.kind === 'mul') n = g.value > 0 ? before * g.value : Math.max(1, Math.floor(before / -g.value));
     else if (g.kind === 'rate') {
+      if (g.value > 0) this.upgrades++;
       this.rateMult = Math.max(0.4, Math.min(4, this.rateMult * (1 + g.value / 100)));
       this.pushWeapon();
     } else {
+      if (g.value > 0) this.upgrades++;
       this.dmgMult = Math.max(0.4, Math.min(8, this.dmgMult * (1 + g.value / 100)));
       this.pushWeapon();
     }
@@ -912,6 +917,7 @@ export class RunnerMode implements GameMode {
   }
 
   private pushWeapon(): void {
+    if (this.squad) this.squad.heavies = Math.min(8, this.upgrades * 2);
     runHud.weapon.value = { rate: this.rateMult, dmg: this.dmgMult, multi: this.multi, helpers: this.helpers?.count ?? 0 };
   }
 
@@ -934,7 +940,8 @@ export class RunnerMode implements GameMode {
   private updateBoss(dt: number): void {
     const boss = this.boss!;
     const wasEnter = boss.state === 'enter';
-    const smashed = boss.update(dt, this.simT, this.squad.x, this.squad.d);
+    // The boss stops at the front edge of the blob, not its centre.
+    const smashed = boss.update(dt, this.simT, this.squad.x, this.squad.d + this.squad.depth);
     if (wasEnter && boss.state !== 'enter') {
       this.fx.explosion(boss.x, boss.d, 2.5);
       this.fx.addShake(0.4);

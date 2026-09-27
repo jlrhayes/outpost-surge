@@ -8,13 +8,13 @@ import { Icon } from '../../ui/components/Icon';
 import { Btn, Screen } from '../../ui/components/common';
 import { CHAPTERS, LEVEL_COUNT, LEVELS_PER_CHAPTER, chapterOf, isBossLevel, levelDef, levelLabel, type ZombieKind } from '../../data/runner';
 import { chapterLock, chapterStars, isCleared, levelLock, levelReward, totalStars, TROOP_CAP_FIRST, TROOP_CAP_REPLAY } from './progress';
-import { RewardList } from './RunnerHud';
+import { RewardList } from '../../ui/components/RewardList';
 import { registerRunnerIcons } from './icons';
 import './runner.css';
 
 registerRunnerIcons();
 
-const THREAT_NAMES: Record<ZombieKind, string> = { walker: 'Walkers', runner: 'Fast dogs', elite: 'Elites', brute: 'Brutes' };
+const THREAT_NAMES: Record<ZombieKind, string> = { walker: 'Walkers', runner: 'Sprinters', elite: 'Elites', brute: 'Brutes' };
 
 export function RunnerLevels(props: { screenKey?: number }) {
   const s = useGame();
@@ -129,7 +129,7 @@ export function RunnerLevels(props: { screenKey?: number }) {
             </span>
           </div>
           <div class="rn-detail-sub">{cleared ? 'Replay rewards (up to)' : 'First clear rewards (up to)'}</div>
-          <RewardList reward={preview} small />
+          <RewardList reward={preview} size={40} />
           <div class="rn-detail-foot">
             {lock ? <div class="rn-lock-hint big">{lock}</div> : null}
             <Btn color="green" class="rn-play" disabled={!!lock} onClick={play}>

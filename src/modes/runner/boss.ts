@@ -1,12 +1,14 @@
 // OWNER: runner agent. End-of-level boss: lumbers toward the squad, smashes soldiers on contact,
 // flashes when hit (cloned material with emissive), topples over on death.
 import * as THREE from 'three';
-import { bossModel } from '../../three/models';
+import { animateModel, bossModel } from '../../three/models';
 import type { BossDef } from '../../data/runner';
 
 export class BossView {
   readonly group = new THREE.Group();
   private body: THREE.Group;
+  private arm: THREE.Object3D | null;
+  private armX = 0;
   private mats: THREE.MeshLambertMaterial[] = [];
   name: string;
   hp: number;
@@ -20,7 +22,8 @@ export class BossView {
   state: 'enter' | 'walk' | 'attack' | 'dying' | 'dead' = 'enter';
   /** Seconds until the next smash while in contact. */
   smashCd = 0.6;
-  private flash = 0;
+  /** >0 = flashing; counts down to -0.08 (cooldown) before the next flash can start. */
+  private flash = -1;
   private stateT = 0;
   private windup = 0;
   /** Half-width for bullet hits. */
@@ -38,12 +41,17 @@ export class BossView {
     this.scale = def.scale;
     this.big = def.big;
     this.halfW = 2.1 * def.scale;
-    this.reach = 1.6 * def.scale;
+    this.reach = 1.3 * def.scale;
     this.body = bossModel();
     this.body.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       const src = m.material as THREE.Material;
+      // Unlit glow parts (eyes, pustules) stay as they are.
+      if (!(src as THREE.MeshLambertMaterial).isMeshLambertMaterial) {
+        m.castShadow = false;
+        return;
+      }
       const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x000000 });
       // Keep any plain colour the art agent used.
       const c = (src as THREE.MeshLambertMaterial).color;
@@ -55,6 +63,7 @@ export class BossView {
       m.castShadow = castShadow;
       this.mats.push(mat);
     });
+    this.arm = this.body.getObjectByName('weaponArm') ?? null;
     this.body.scale.setScalar(def.scale);
     this.group.add(this.body);
     this.group.position.set(0, -4, -d);
@@ -63,7 +72,8 @@ export class BossView {
   hit(dmg: number): boolean {
     if (this.state === 'dying' || this.state === 'dead') return false;
     this.hp -= dmg;
-    this.flash = 0.07;
+    // Flicker (not a solid glow) under sustained fire.
+    if (this.flash <= -0.08) this.flash = 0.05;
     if (this.hp <= 0) {
       this.hp = 0;
       this.state = 'dying';
@@ -77,12 +87,12 @@ export class BossView {
     return this.state !== 'dying' && this.state !== 'dead';
   }
 
-  /** Returns true on the frame a smash lands. */
+  /** Returns true on the frame a smash lands. `squadD` is the front edge of the squad. */
   update(dt: number, t: number, squadX: number, squadD: number): boolean {
     this.stateT += dt;
     let smashed = false;
-    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt);
-    const fl = this.flash > 0 ? 0.9 : this.windup > 0 ? this.windup * 0.5 : 0;
+    if (this.flash > -0.08) this.flash -= dt;
+    const fl = this.flash > 0 ? 0.45 : this.windup > 0 ? this.windup * 0.5 : 0;
     for (const m of this.mats) m.emissive.setRGB(fl, fl * (this.windup > 0 ? 0.25 : 1), fl * (this.windup > 0 ? 0.1 : 1));
 
     let y = 0;
@@ -135,6 +145,14 @@ export class BossView {
     }
     this.group.position.set(this.x, y, -this.d);
     this.body.rotation.set(pitch, 0, roll);
+    // Weapon arm: swings while walking, rears back on wind-up, slams down on a smash.
+    let armT = 0;
+    if (this.state === 'walk') armT = Math.sin(t * 3.2) * 0.35;
+    else if (this.state === 'attack') armT = smashed ? 1.1 : this.windup > 0 ? -1.7 * this.windup : this.smashCd > 0.8 ? 0.9 : 0.2;
+    else if (this.state === 'dying' || this.state === 'dead') armT = -1.2;
+    this.armX += (armT - this.armX) * Math.min(1, dt * (smashed ? 40 : 9));
+    if (this.arm) this.arm.rotation.x = this.armX;
+    animateModel(this.body, dt, t);
     return smashed;
   }
 
