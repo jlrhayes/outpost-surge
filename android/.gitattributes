@@ -1,0 +1,5 @@
+# Windows batch files need CRLF; the POSIX wrapper must stay LF.
+*.bat text eol=crlf
+gradlew text eol=lf
+*.jar binary
+*.png binary
