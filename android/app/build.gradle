@@ -1,0 +1,90 @@
+apply plugin: 'com.android.application'
+
+// --- Versioning -------------------------------------------------------------------------------
+// CI (.github/workflows/android.yml) sets VERSION_CODE (= GITHUB_RUN_NUMBER, always increasing) and
+// VERSION_NAME (tag without the "v", or "<package.json version>-build.<run>"). Local builds use defaults.
+def envOr = { String name, String fallback ->
+    def value = System.getenv(name)
+    return (value != null && !value.trim().isEmpty()) ? value.trim() : fallback
+}
+def appVersionCode = envOr('VERSION_CODE', envOr('GITHUB_RUN_NUMBER', '1')).toInteger()
+def appVersionName = envOr('VERSION_NAME', '0.1.0-dev')
+
+// --- Release signing ----------------------------------------------------------------------------
+// When ANDROID_KEYSTORE_PATH points at a PKCS#12 keystore (see scripts/gen-keystore.mjs), release builds
+// are signed with it. Otherwise they fall back to the debug key so the build never fails for lack of
+// secrets (such APKs install fine, but cannot be updated in place by an APK signed with another key).
+def releaseKeystorePath = envOr('ANDROID_KEYSTORE_PATH', '')
+def releaseKeystorePassword = envOr('ANDROID_KEYSTORE_PASSWORD', '')
+def hasReleaseKeystore = !releaseKeystorePath.isEmpty() && !releaseKeystorePassword.isEmpty() && file(releaseKeystorePath).exists()
+if (hasReleaseKeystore) {
+    logger.lifecycle("Signing release build with keystore: ${releaseKeystorePath}")
+} else {
+    logger.lifecycle("No release keystore configured (ANDROID_KEYSTORE_PATH/ANDROID_KEYSTORE_PASSWORD); release build will use the debug signing key.")
+}
+
+android {
+    namespace = "io.github.jlrhayes.outpostsurge"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "io.github.jlrhayes.outpostsurge"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode appVersionCode
+        versionName appVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            release {
+                storeFile = file(releaseKeystorePath)
+                storeType = "pkcs12"
+                storePassword = releaseKeystorePassword
+                keyAlias = envOr('ANDROID_KEY_ALIAS', 'outpostsurge')
+                // PKCS#12 stores use the same password for the key unless told otherwise.
+                keyPassword = envOr('ANDROID_KEY_PASSWORD', releaseKeystorePassword)
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig = hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
