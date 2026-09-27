@@ -1,6 +1,5 @@
 // Spending and granting. Always use these instead of editing currencies directly so events/stats fire.
 import { game, mutate, type GameState } from './store';
-import { emit } from './events';
 import type { Cost, CurrencyId, ItemId, Reward } from './types';
 
 export function canAfford(s: GameState, cost: Cost): boolean {
