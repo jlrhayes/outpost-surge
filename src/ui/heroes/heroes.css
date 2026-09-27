@@ -1322,3 +1322,111 @@
 .rw-hero .hp-frame > svg {
   border-radius: 5px;
 }
+
+/* ---- Reset hero (Level tab) ---- */
+.reset-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.reset-row .dim-label {
+  flex: 1;
+}
+.reset-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 4px 6px 2px;
+}
+
+/* ---- Typed enemies (counter triangle) in the district preview ---- */
+.ec-type {
+  position: absolute;
+  top: -5px;
+  left: 0;
+  line-height: 0;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+.enemy-chip.boss .ec-type {
+  left: 6px;
+}
+.ec-weak {
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.1;
+  margin-top: 1px;
+  white-space: nowrap;
+}
+.dc-counter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 8px 0 2px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  font-weight: 700;
+}
+.dc-counter .ok {
+  color: #8ef07a;
+}
+.dc-counter .bad {
+  color: #ff9a8a;
+}
+
+/* ---- Squad out on a world march ---- */
+.dc-busy,
+.f-busy {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(74, 168, 255, 0.16);
+  border: 1px solid rgba(74, 168, 255, 0.45);
+  color: #bfe0ff;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+.f-busy {
+  margin: 0 0 8px;
+}
+.squad-tab .busy-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: #4ab0ff;
+  box-shadow: 0 0 6px #4ab0ff;
+  vertical-align: middle;
+}
+.enemy-chip .ec-type svg {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.enemy-chip.type-tank > svg {
+  border-color: #7cc04a;
+  box-shadow: 0 0 8px rgba(124, 192, 74, 0.7);
+}
+.enemy-chip.type-aircraft > svg {
+  border-color: #4ab0ff;
+  box-shadow: 0 0 8px rgba(74, 176, 255, 0.7);
+}
+.enemy-chip.type-missile > svg {
+  border-color: #ff8a3a;
+  box-shadow: 0 0 8px rgba(255, 138, 58, 0.7);
+}
+.hero-detail .modal-backdrop {
+  z-index: 60;
+}

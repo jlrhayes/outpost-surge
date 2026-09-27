@@ -26,6 +26,10 @@ const A_FRONT_Z = -3.0;
 const A_BACK_Z = -6.8;
 
 type VisKind = 'tank' | 'aircraft' | 'missile' | 'zombies' | 'boss';
+
+/** Counter-type colours (match TYPE_COLOR in src/ui/heroes/icons.tsx). */
+const TYPE_HEX: Record<HeroType, number> = { tank: 0x7cc04a, aircraft: 0x4ab0ff, missile: 0xff8a3a };
+const TYPE_TAG: Record<HeroType, string> = { tank: 'TANK', aircraft: 'AIR', missile: 'MSL' };
 type ZKind = 'walker' | 'runner' | 'brute' | 'spitter';
 
 interface Member {
@@ -148,6 +152,9 @@ class UnitVis {
   swingT = -1;
   heroId?: string;
   label: string;
+  /** Counter type of a typed zombie unit (boss/elite): shown as a coloured ground aura + HP-bar tag. */
+  ctype?: HeroType;
+  aura: THREE.Mesh | null = null;
 
   constructor(
     readonly c: Combatant,
@@ -157,6 +164,7 @@ class UnitVis {
     this.hp = c.hp;
     this.maxHp = c.maxHp;
     this.heroId = c.heroId;
+    if (c.type === 'zombie') this.ctype = (c as BattleUnit).ctype;
     const def = c.heroId ? heroDef(c.heroId) : undefined;
     this.hasActive = !!def && c.type !== 'zombie';
     this.label = def ? def.callsign : c.name;
@@ -213,6 +221,16 @@ export class BattleMode implements GameMode {
   private shieldGeom = new THREE.SphereGeometry(1, 18, 12);
   private starGeom = new THREE.OctahedronGeometry(0.16, 0);
   private starMat = new THREE.MeshBasicMaterial({ color: 0xffe040 });
+  private auraGeom = new THREE.RingGeometry(0.8, 1, 40);
+  private auraMats: Record<HeroType, THREE.MeshBasicMaterial> = {
+    tank: this.auraMat(TYPE_HEX.tank),
+    aircraft: this.auraMat(TYPE_HEX.aircraft),
+    missile: this.auraMat(TYPE_HEX.missile),
+  };
+
+  private auraMat(color: number): THREE.MeshBasicMaterial {
+    return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide });
+  }
 
   constructor() {
     this.scene.background = new THREE.Color(0x9ccbee);
@@ -261,7 +279,14 @@ export class BattleMode implements GameMode {
     this.buildUnits(req.attackers, 'A');
     this.buildUnits(req.defenders, 'B');
     this.overlay.setUnits(
-      this.list.map((u) => ({ uid: u.uid, side: u.side, label: u.kind === 'zombies' ? '' : u.label, hasEnergy: u.hasActive, big: u.kind === 'boss' })),
+      this.list.map((u) => ({
+        uid: u.uid,
+        side: u.side,
+        label: u.kind === 'zombies' ? '' : u.label,
+        hasEnergy: u.hasActive,
+        big: u.kind === 'boss',
+        tag: u.ctype ? { text: TYPE_TAG[u.ctype], color: '#' + TYPE_HEX[u.ctype].toString(16).padStart(6, '0') } : undefined,
+      })),
     );
 
     this.events = this.result.events;
@@ -331,6 +356,17 @@ export class BattleMode implements GameMode {
       if (u.isVehicle) this.makeVehicle(u);
       else if (u.kind === 'boss') this.makeBoss(u);
       else this.makeZombies(u);
+      if (u.ctype) {
+        // Typed (elite/boss) zombies: coloured ground ring in the counter-type colour.
+        const ring = new THREE.Mesh(this.auraGeom, this.auraMats[u.ctype]);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.05;
+        const r = u.kind === 'boss' ? 2.4 : 1.9;
+        ring.scale.set(r, r, r);
+        ring.renderOrder = 2;
+        u.aura = ring;
+        u.root.add(ring);
+      }
       // Home position.
       let x = LANE_X[c.slot] ?? 0;
       let z: number;
@@ -912,6 +948,8 @@ export class BattleMode implements GameMode {
         if (this.phaseT >= OUTRO) this.setPhase('result');
         break;
     }
+    const auraOpacity = 0.45 + Math.sin(elapsed * 4) * 0.2;
+    for (const k in this.auraMats) this.auraMats[k as HeroType].opacity = auraOpacity;
     const aFrontAlive = this.list.some((u) => u.side === 'A' && u.alive && u.slot <= 1);
     const bFrontAlive = this.list.some((u) => u.side === 'B' && u.alive && u.slot <= 1);
     for (const u of this.list) this.animateUnit(u, sdt, elapsed, u.side === 'A' ? aFrontAlive : bFrontAlive);
@@ -1037,6 +1075,8 @@ export class BattleMode implements GameMode {
     if (!u.alive && u.kind === 'zombies') u.deadT += dt;
     if (u.inst) this.animateMembers(u, u.inst, u.members, dt, true, celebrate);
     if (u.soldiers) this.animateMembers(u, u.soldiers, u.soldierMembers, dt, false, celebrate);
+    // ---- counter-type aura (typed zombies)
+    if (u.aura) u.aura.visible = u.alive;
     // ---- shield bubble
     const shieldOn = u.alive && u.shield > 0 && this.playT < u.shieldUntil;
     if (shieldOn && !u.shieldMesh) {

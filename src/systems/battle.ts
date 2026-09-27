@@ -58,6 +58,18 @@ export const COUNTERS: Record<HeroType, HeroType> = { tank: 'missile', missile: 
 export function counters(a: string, b: string): boolean {
   return (COUNTERS as Record<string, string>)[a] === b;
 }
+/** The hero type that counters `t` (weakTo('tank') === 'aircraft'). */
+export function weakTo(t: HeroType): HeroType {
+  return (Object.keys(COUNTERS) as HeroType[]).find((k) => COUNTERS[k] === t)!;
+}
+/**
+ * Type used for the counter triangle: a hero's type, or the type carried by a typed zombie
+ * (bosses/elites, see `ctype` on BattleUnit). Plain zombies return null (no counter either way).
+ */
+export function counterType(c: Combatant): HeroType | null {
+  if (c.type !== 'zombie') return c.type;
+  return (c as BattleUnit).ctype ?? null;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Zombie abilities (enemy units with type 'zombie'). Keyed by Combatant.skillId, or derived from model.
@@ -127,6 +139,8 @@ interface U {
   slot: number;
   lane: number;
   type: string;
+  /** Counter-triangle type ('' = none). Differs from `type` for typed zombies. */
+  ctype: string;
   hp: number;
   maxHp: number;
   atk: number;
@@ -167,6 +181,7 @@ function makeUnit(c: Combatant, rng: () => number): U {
     slot: c.slot,
     lane: LANES[c.slot] ?? 0,
     type: c.type,
+    ctype: counterType(c) ?? '',
     hp: Math.max(1, Math.min(c.hp, c.maxHp)),
     maxHp: Math.max(1, c.maxHp),
     atk: Math.max(1, c.atk),
@@ -327,8 +342,8 @@ export function simulateBattle(a: Combatant[], b: Combatant[], seed = 1): Battle
     const atk = effAtk(src, t);
     const def = effDef(tgt, t);
     let d = atk * mult * (atk / (atk + def));
-    if (counters(src.type, tgt.type)) d *= 1.2;
-    if (counters(tgt.type, src.type)) d *= 0.8;
+    if (counters(src.ctype, tgt.ctype)) d *= 1.2;
+    if (counters(tgt.ctype, src.ctype)) d *= 0.8;
     const critChance = (src.crit + buffSum(src, 'crit', t)) / 100;
     const crit = rng() < critChance;
     if (crit) d *= 1.5;
@@ -558,7 +573,10 @@ export interface BattleRequest {
   seed?: number;
   /** Background/arena flavour for the scene. */
   arena?: 'road' | 'wasteland' | 'city';
-  /** Called when the player leaves the result screen. Use it to grant rewards and navigate onward. */
+  /**
+   * Called when the player leaves the result screen (the mode then goes to `returnTo`). Prefer applying the
+   * outcome (rewards/losses) BEFORE startBattle — the player may close the app during playback.
+   */
   onFinish: (result: BattleResult) => void;
   /** Mode to return to after the battle (default 'base'). */
   returnTo?: 'base' | 'world';
@@ -571,6 +589,8 @@ export interface BattleRequest {
   subtitle?: string;
   /** Extra lines on the result screen (e.g. "Wounded soldiers: 12"). */
   notes?: string[];
+  /** Attacking squad id (the defeat screen's "Formation" button opens it). */
+  squadId?: number;
 }
 
 /** Opens the 3D battle playback mode. The result is computed up-front with simulateBattle. */

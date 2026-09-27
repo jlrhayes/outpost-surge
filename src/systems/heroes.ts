@@ -2,12 +2,14 @@
 // The contract functions squadCombatants/squadPower/squadReady are used by other modules (world map, HUD) — keep signatures.
 import { mutate, type GameState } from '../core/store';
 import type { Combatant, Cost, HeroType, Rarity } from '../core/types';
-import { bonusMult } from '../core/bonuses';
+import { bonusMult, getBonus } from '../core/bonuses';
 import { emit } from '../core/events';
 import { canAfford, consumeItemIn, spendIn } from '../core/economy';
+import { toast } from '../core/nav';
 import { now } from '../core/tick';
 import { isUnlocked } from '../core/unlocks';
 import { hqLevel, marchSizePerHero } from './buildings';
+import { troopTier } from '../data/troops';
 import {
   HEROES,
   SCRIPTED_FIRST_RECRUIT,
@@ -43,6 +45,11 @@ export interface CombatExtras {
   count?: number;
   /** Stars (heroes). */
   stars?: number;
+  /**
+   * Counter-triangle type of a typed enemy (boss/elite zombies keep `type: 'zombie'` for their abilities and
+   * visuals but fight as this type: Tank > Missile > Aircraft > Tank). See typeEnemy() in src/systems/campaign.ts.
+   */
+  ctype?: HeroType;
 }
 export type BattleUnit = Combatant & CombatExtras;
 
@@ -55,15 +62,16 @@ export function combatPower(hp: number, atk: number, def: number): number {
   return hp + atk * 10 + def * 5;
 }
 
-const TROOP_BASE: Stats = { hp: 10, atk: 1, def: 0.3 };
-/** Per-soldier stats for a tier (T1..T10). ~1.6x per tier (T10 ~69x T1). */
+/**
+ * Per-soldier combat stats for a tier (T1..T10). Reads the single soldier table in src/data/troops.ts
+ * (also used by the Barracks screen and the 'troops' power provider).
+ */
 export function troopStats(tier: number): Stats {
-  const m = Math.pow(1.6, Math.max(0, tier - 1));
-  return { hp: TROOP_BASE.hp * m, atk: TROOP_BASE.atk * m, def: TROOP_BASE.def * m };
+  const t = troopTier(tier);
+  return { hp: t.hp, atk: t.atk, def: t.def };
 }
 export function troopPower(tier: number): number {
-  const t = troopStats(tier);
-  return combatPower(t.hp, t.atk, t.def);
+  return troopTier(tier).power;
 }
 
 export interface TroopStack {
@@ -71,9 +79,59 @@ export interface TroopStack {
   count: number;
 }
 
+/** Soldiers one hero leads: the march size for its type (HQ + type center) plus 2 per hero level above 1. */
+export function heroLeadSize(s: GameState, h: HeroState): number {
+  const d = heroDef(h.id);
+  if (!d) return 0;
+  return marchSizePerHero(s, d.type) + Math.floor((h.level - 1) * 2);
+}
+
+/** Per-slot soldier caps of a squad; the flat `squad_capacity` bonus (research) is shared among its heroes. */
+function slotCaps(s: GameState, sq: Squad): number[] {
+  const caps = [0, 0, 0, 0, 0];
+  const filled: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const id = sq.heroes[i];
+    const h = id ? s.heroes.owned[id] : undefined;
+    if (!h || !heroDef(h.id)) continue;
+    caps[i] = heroLeadSize(s, h);
+    filled.push(i);
+  }
+  const extra = Math.max(0, Math.floor(getBonus(s, 'squad_capacity')));
+  if (filled.length && extra > 0) {
+    const each = Math.floor(extra / filled.length);
+    let rest = extra - each * filled.length;
+    for (const i of filled) caps[i] += each + (rest-- > 0 ? 1 : 0);
+  }
+  return caps;
+}
+
 /**
- * Splits ready soldiers between squads (squad 1 first) and within a squad between heroes
- * (slot order), each hero leading up to its march size, highest tiers first.
+ * THE soldier capacity of a squad (sum of its heroes' lead sizes + the `squad_capacity` bonus).
+ * Used by battles (troopAllocation) and by the world map (marches), so both always agree.
+ */
+export function squadTroopCap(s: GameState, squadId: number): number {
+  const sq = getSquad(s, squadId);
+  return sq ? slotCaps(s, sq).reduce((a, b) => a + b, 0) : 0;
+}
+
+/** True while the squad is out on a world-map march (its heroes and soldiers are away). */
+export function squadBusy(s: GameState, squadId: number): boolean {
+  const marches = s.world?.marches;
+  return !!marches && marches.some((m) => m.squadId === squadId);
+}
+
+/** Soldiers a busy squad took on its march(es). */
+function marchTroopsOf(s: GameState, squadId: number): number {
+  let n = 0;
+  for (const m of s.world?.marches ?? []) if (m.squadId === squadId) n += Math.max(0, Math.floor(m.troops ?? 0));
+  return n;
+}
+
+/**
+ * Splits ready soldiers between squads and within a squad between heroes (slot order), each hero leading up
+ * to its lead size, highest tiers first. Squads out on a world march are served first and keep exactly the
+ * soldiers they marched with, so soldiers that are away are never counted again for squads at home.
  * Returns squadId -> per-slot stacks.
  */
 export function troopAllocation(s: GameState): Record<number, TroopStack[][]> {
@@ -82,28 +140,35 @@ export function troopAllocation(s: GameState): Record<number, TroopStack[][]> {
     .filter((x) => x.count > 0)
     .sort((a, b) => b.tier - a.tier);
   const out: Record<number, TroopStack[][]> = {};
-  const squads = [...s.heroes.squads].sort((a, b) => a.id - b.id);
+  const busy = (id: number) => squadBusy(s, id);
+  const squads = [...s.heroes.squads].sort((a, b) => Number(busy(b.id)) - Number(busy(a.id)) || a.id - b.id);
   for (const sq of squads) {
+    const caps = slotCaps(s, sq);
+    let budget = busy(sq.id) ? marchTroopsOf(s, sq.id) : Infinity;
     const slots: TroopStack[][] = [];
     for (let i = 0; i < 5; i++) {
-      const id = sq.heroes[i];
-      const def = id && s.heroes.owned[id] ? heroDef(id) : undefined;
       const stacks: TroopStack[] = [];
-      if (def) {
-        let need = marchSizePerHero(s, def.type) + Math.floor((s.heroes.owned[id!].level - 1) * 2);
-        for (const p of pool) {
-          if (need <= 0) break;
-          if (p.count <= 0) continue;
-          const take = Math.min(need, p.count);
-          p.count -= take;
-          need -= take;
-          stacks.push({ tier: p.tier, count: take });
-        }
+      let need = Math.min(caps[i], budget);
+      for (const p of pool) {
+        if (need <= 0) break;
+        if (p.count <= 0) continue;
+        const take = Math.min(need, p.count);
+        p.count -= take;
+        need -= take;
+        budget -= take;
+        stacks.push({ tier: p.tier, count: take });
       }
       slots.push(stacks);
     }
     out[sq.id] = slots;
   }
+  return out;
+}
+
+/** Soldiers of a squad by tier (tier -> count), as they would fight right now. */
+export function squadTroopsByTier(s: GameState, squadId: number): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const slot of troopAllocation(s)[squadId] ?? []) for (const st of slot) out[st.tier] = (out[st.tier] ?? 0) + st.count;
   return out;
 }
 
@@ -239,6 +304,61 @@ export function expForLevels(level: number, n: number): number {
   return t;
 }
 
+/** Levels behind the squad-1 average at which newly recruited heroes join. */
+export const RECRUIT_LEVEL_GAP = 5;
+
+/**
+ * Level a newly unlocked hero joins at (free, no EXP spent): average level of Squad 1's heroes minus 5,
+ * at least 1 and never above the hero level cap. Keeps new recruits usable instead of starting at Lv 1.
+ */
+export function newRecruitLevel(s: GameState): number {
+  const sq = s.heroes.squads.find((q) => q.id === 1);
+  const lv: number[] = [];
+  for (const id of sq?.heroes ?? []) {
+    const h = id ? s.heroes.owned[id] : undefined;
+    if (h) lv.push(h.level);
+  }
+  if (!lv.length) return 1;
+  const avg = lv.reduce((a, b) => a + b, 0) / lv.length;
+  return Math.max(1, Math.min(heroLevelCap(s), Math.floor(avg) - RECRUIT_LEVEL_GAP));
+}
+
+/** Level a hero goes back to on reset (the level it joined at for free). */
+export function heroBaseLevel(h: HeroState): number {
+  return Math.max(1, Math.min(h.level, Math.floor(h.baseLevel ?? 1)));
+}
+
+/** Hero EXP a reset refunds: 100% of the EXP spent leveling above the free join level. */
+export function heroResetRefund(h: HeroState): number {
+  const base = heroBaseLevel(h);
+  return expForLevels(base, h.level - base);
+}
+
+/**
+ * Resets a hero to the level it joined at and refunds 100% of the Hero EXP spent on it (stars, skills and gear
+ * are kept). Returns the EXP refunded (0 = nothing to reset).
+ */
+export function resetHero(heroId: string): number {
+  let refund = 0;
+  mutate((s) => {
+    const h = s.heroes.owned[heroId];
+    if (!h) return;
+    refund = heroResetRefund(h);
+    if (refund <= 0) return;
+    h.level = heroBaseLevel(h);
+    s.currencies.heroExp += refund;
+  });
+  return refund;
+}
+
+/** Creates a newly unlocked hero at the recruit level (call inside mutate). */
+function newRecruitIn(s: GameState, heroId: string): HeroState {
+  const lv = newRecruitLevel(s);
+  const nh = newHeroState(heroId, lv);
+  nh.baseLevel = lv;
+  return nh;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Stars & shards
 // ---------------------------------------------------------------------------------------------
@@ -297,7 +417,7 @@ export function addShardsIn(s: GameState, heroId: string, n: number): { unlocked
   }
   const pending = (s.heroes.pendingShards[heroId] ?? 0) + n;
   if (pending >= UNLOCK_SHARDS) {
-    const nh = newHeroState(heroId);
+    const nh = newRecruitIn(s, heroId);
     nh.shards = pending - UNLOCK_SHARDS;
     s.heroes.owned[heroId] = nh;
     delete s.heroes.pendingShards[heroId];
@@ -316,7 +436,7 @@ export function grantHeroIn(s: GameState, heroId: string): { isNew: boolean; sha
     h.shards += DUP_SHARDS[d.rarity];
     return { isNew: false, shards: DUP_SHARDS[d.rarity] };
   }
-  const nh = newHeroState(heroId);
+  const nh = newRecruitIn(s, heroId);
   const pending = s.heroes.pendingShards[heroId] ?? 0;
   nh.shards = pending;
   delete s.heroes.pendingShards[heroId];
@@ -432,13 +552,29 @@ export function getSquad(s: GameState, squadId: number): Squad | undefined {
   return s.heroes.squads.find((q) => q.id === squadId);
 }
 
+/** Why a squad's line-up can't be changed right now (null = OK). */
+export function squadLockReason(s: GameState, squadId: number): string | null {
+  return squadBusy(s, squadId) ? `Squad ${squadId} is out on a world march — wait for it to return` : null;
+}
+
 /**
  * Puts a hero into a squad slot (or clears it with null). A hero can only be in one squad:
  * it is moved from wherever it was (swapping with the target slot's hero inside the same squad).
+ * Squads out on a world march are locked (no heroes in or out). Returns false (with a toast) if refused.
  */
-export function assignHero(squadId: number, slot: number, heroId: string | null): void {
+export function assignHero(squadId: number, slot: number, heroId: string | null): boolean {
   const touched = new Set<number>([squadId]);
+  let err = null as string | null;
   mutate((s) => {
+    err = squadLockReason(s, squadId);
+    if (err) return;
+    if (heroId) {
+      const from = heroSquadOf(s, heroId);
+      if (from !== null && from !== squadId && squadBusy(s, from)) {
+        err = `${heroDef(heroId)?.callsign ?? 'This hero'} is on a march with Squad ${from}`;
+        return;
+      }
+    }
     const sq = ensureSquadIn(s, squadId);
     const prev = sq.heroes[slot];
     if (heroId) {
@@ -453,7 +589,12 @@ export function assignHero(squadId: number, slot: number, heroId: string | null)
     }
     sq.heroes[slot] = heroId;
   });
+  if (err) {
+    toast(err, 'bad');
+    return false;
+  }
   for (const id of touched) emit('squad:changed', { squadId: id });
+  return true;
 }
 
 /** Same-type formation bonus (% to HP/ATK/DEF): 3 -> 5, 3+2 -> 10, 4 -> 15, 5 -> 20. */
@@ -589,7 +730,10 @@ export function squadReady(s: GameState, squadId: number): boolean {
   return !!sq && sq.heroes.some((h) => h && s.heroes.owned[h]);
 }
 
-/** Soldiers a squad currently leads. */
+/**
+ * Soldiers a squad currently leads (its share of the ready soldiers, limited by squadTroopCap; for a squad
+ * out on a march, the soldiers it marched with). The world map uses this for march sizes.
+ */
 export function squadTroops(s: GameState, squadId: number): number {
   const alloc = troopAllocation(s)[squadId] ?? [];
   let n = 0;
@@ -605,10 +749,14 @@ function frontScore(d: HeroDef, h: HeroState): number {
 
 /**
  * Quick deploy: fills a squad with the strongest available heroes (not in other squads), trying each
- * type for the same-type bonus. Defenders go to the front row.
+ * type for the same-type bonus. Defenders go to the front row. Refused (false + toast) while the squad is
+ * out on a world march; heroes of other squads (busy or not) are never taken.
  */
-export function autoFillSquad(squadId: number): void {
+export function autoFillSquad(squadId: number): boolean {
+  let err = null as string | null;
   mutate((s) => {
+    err = squadLockReason(s, squadId);
+    if (err) return;
     const sq = ensureSquadIn(s, squadId);
     const taken = new Set<string>();
     for (const other of s.heroes.squads) if (other.id !== squadId) other.heroes.forEach((id) => id && taken.add(id));
@@ -638,7 +786,12 @@ export function autoFillSquad(squadId: number): void {
     back.forEach((x, i) => (heroes[order[i]] = x.h.id));
     sq.heroes = heroes;
   });
+  if (err) {
+    toast(err, 'bad');
+    return false;
+  }
   emit('squad:changed', { squadId });
+  return true;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -658,6 +811,12 @@ export interface PullResult {
   isNew: boolean;
   /** Shards gained (duplicates). */
   shards: number;
+}
+
+/** Free-recruit cooldown after the Tavern bonus (`recruit_cd_pct`, % shorter; at most -75%). */
+export function freeRecruitCooldownMs(s: GameState): number {
+  const pct = Math.max(0, Math.min(75, getBonus(s, 'recruit_cd_pct')));
+  return Math.round(FREE_RECRUIT_MS * (1 - pct / 100));
 }
 
 export function freeRecruitReady(s: GameState, t = now()): boolean {
@@ -680,7 +839,7 @@ export function recruit(count: 1 | 10, method: RecruitMethod, rnd: () => number 
   let results: PullResult[] | null = null;
   mutate((s) => {
     if (!recruitAffordable(s, count, method)) return;
-    if (method === 'free') s.heroes.recruit.freeAt = now() + FREE_RECRUIT_MS;
+    if (method === 'free') s.heroes.recruit.freeAt = now() + freeRecruitCooldownMs(s);
     else if (method === 'ticket') consumeItemIn(s, 'recruit_ticket', count);
     else s.currencies.diamonds -= count === 10 ? RECRUIT_DIAMONDS_10 : RECRUIT_DIAMONDS_1;
 

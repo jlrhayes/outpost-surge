@@ -4,7 +4,7 @@ import { useGame } from '../../core/store';
 import { openScreen, toast } from '../../core/nav';
 import { sfx } from '../../core/audio';
 import { fmt } from '../../core/format';
-import { Bar, Btn, CostView, Screen, Tabs } from '../components/common';
+import { Bar, Btn, CostView, Modal, Screen, Tabs } from '../components/common';
 import { Icon } from '../components/Icon';
 import { hqLevel, marchSizePerHero } from '../../systems/buildings';
 import {
@@ -31,10 +31,14 @@ import {
   gearCap,
   gearTier,
   gearUpgradeCost,
+  heroBaseLevel,
+  heroLeadSize,
   heroLevelCap,
   heroPower,
+  heroResetRefund,
   heroStats,
   levelUpHero,
+  resetHero,
   skillCap,
   skillMedalCost,
   starCost,
@@ -142,6 +146,55 @@ function LevelTab(props: { h: HeroState; d: HeroDef }) {
         </div>
       )}
       {!atCap && s.currencies.heroExp < next && <div class="dim-label center">Get Hero EXP from districts, the loot truck and the Training Base.</div>}
+      <ResetHero h={h} d={d} />
+    </div>
+  );
+}
+
+/** "Reset hero": back to the free join level with a 100% Hero EXP refund (stars, skills and gear are kept). */
+function ResetHero(props: { h: HeroState; d: HeroDef }) {
+  const { h, d } = props;
+  const [ask, setAsk] = useState(false);
+  const refund = heroResetRefund(h);
+  const base = heroBaseLevel(h);
+  if (refund <= 0) return null;
+  return (
+    <div class="reset-row">
+      <div class="dim-label">
+        Reset to Lv {base} and get back <Icon name="heroExp" size={13} /> <b>{fmt(refund)}</b> Hero EXP (100%) to spend on other heroes.
+      </div>
+      <Btn small color="gray" onClick={() => setAsk(true)}>
+        Reset hero
+      </Btn>
+      {ask && (
+        <Modal title="Reset hero?" onClose={() => setAsk(false)}>
+          <div class="reset-confirm">
+            <HeroPortrait heroId={d.id} size={84} frame />
+            <div>
+              {d.callsign} goes back to <b>Lv {base}</b>. You get <Icon name="heroExp" size={14} /> <b>{fmt(refund)}</b> Hero EXP back.
+            </div>
+            <div class="dim-label">Stars, skills and gear are kept.</div>
+            <div class="btn-row">
+              <Btn color="gray" onClick={() => setAsk(false)}>
+                Cancel
+              </Btn>
+              <Btn
+                color="red"
+                onClick={() => {
+                  const n = resetHero(h.id);
+                  setAsk(false);
+                  if (n > 0) {
+                    sfx.reward();
+                    toast(`${d.callsign} reset · +${fmt(n)} Hero EXP`, 'good');
+                  }
+                }}
+              >
+                Reset
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -395,7 +448,7 @@ export function HeroDetailScreen(props: { heroId: string; screenKey?: number }) 
         </div>
         <div>
           <span class="dim-label">Leads</span>
-          <b>{marchSizePerHero(s, d.type) + (h ? (h.level - 1) * 2 : 0)}</b>
+          <b>{h ? heroLeadSize(s, h) : marchSizePerHero(s, d.type)}</b>
         </div>
         <div>
           <span class="dim-label">Atk speed</span>

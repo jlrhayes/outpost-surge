@@ -372,9 +372,9 @@ export function productionAt(type: BuildingType, level: number): number {
 /** Troops housed by one Parade Yard. */
 export function drillCapacityAt(level: number): number {
   const l = clampLv(level);
-  return l < 1 ? 0 : 150 * l + 5 * l * l;
+  return l < 1 ? 0 : 300 * l + 10 * l * l;
 }
-export const BASE_TROOP_CAPACITY = 200;
+export const BASE_TROOP_CAPACITY = 400;
 
 /** Beds in one Field Hospital. */
 export function hospitalBedsAt(level: number): number {

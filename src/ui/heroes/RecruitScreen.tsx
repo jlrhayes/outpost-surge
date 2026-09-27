@@ -6,6 +6,7 @@ import { sfx } from '../../core/audio';
 import { clock } from '../../core/tick';
 import { fmt, fmtDuration } from '../../core/format';
 import { isUnlocked, unlockHint } from '../../core/unlocks';
+import { getBonus } from '../../core/bonuses';
 import { Bar, Btn, Screen } from '../components/common';
 import { Icon } from '../components/Icon';
 import { heroDef, TYPE_LABEL } from '../../data/heroes';
@@ -14,7 +15,9 @@ import {
   RECRUIT_DIAMONDS_10,
   RECRUIT_RATES,
   UR_PITY,
+  freeRecruitCooldownMs,
   freeRecruitReady,
+  newRecruitLevel,
   recruit,
   recruitAffordable,
   type PullResult,
@@ -118,6 +121,7 @@ export function RecruitScreen() {
   const tickets = s.items.recruit_ticket ?? 0;
   const freeReady = freeRecruitReady(s, t);
   const pityLeft = UR_PITY - s.heroes.recruit.pity;
+  const newLv = newRecruitLevel(s);
 
   const methodFor = (count: 1 | 10): RecruitMethod | null => {
     if (recruitAffordable(s, count, 'ticket')) return 'ticket';
@@ -185,6 +189,7 @@ export function RecruitScreen() {
         </div>
         <Bar value={s.heroes.recruit.pity} max={UR_PITY} color="linear-gradient(#ffe070,#ff9a1a)" height={10} />
         <div class="dim-label">Every x10 contains at least one SSR or better. Duplicates become shards.</div>
+        {newLv > 1 && <div class="dim-label">New heroes join at Lv {newLv} (near your squad's level) — no EXP needed.</div>}
       </div>
 
       {!unlocked && (
@@ -197,6 +202,10 @@ export function RecruitScreen() {
         <div>
           <div class="free-title">Free Recruit</div>
           <div class="dim-label">{freeReady ? 'Available now!' : <>Next in {fmtDuration(s.heroes.recruit.freeAt - t)}</>}</div>
+          <div class="dim-label">
+            Every {fmtDuration(freeRecruitCooldownMs(s))}
+            {getBonus(s, 'recruit_cd_pct') > 0 && <> · Tavern −{Math.round(Math.min(75, getBonus(s, 'recruit_cd_pct')))}%</>}
+          </div>
         </div>
         <Btn color="green" disabled={!freeReady || !unlocked} onClick={() => doPull(1, 'free')}>
           FREE

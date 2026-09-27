@@ -16,7 +16,9 @@ import {
   getSquad,
   heroPower,
   heroSquadOf,
+  squadBusy,
   squadPower,
+  squadTroopCap,
   squadTroops,
   squadTypes,
   typeBonusPct,
@@ -67,13 +69,28 @@ export function FormationScreen(props: { squadId?: number }) {
   for (const t of types) counts[t]++;
   const power = squadPower(s, squadId);
   const troops = squadTroops(s, squadId);
+  const cap = squadTroopCap(s, squadId);
+  const locked = squadBusy(s, squadId);
 
   const tapSlot = (i: number) => {
     sfx.click();
+    if (locked) {
+      toast(`Squad ${squadId} is out on a world march — wait for it to return`, 'bad');
+      return;
+    }
     setSel(sel === i ? null : i);
   };
 
   const tapHero = (id: string) => {
+    if (locked) {
+      toast(`Squad ${squadId} is out on a world march — wait for it to return`, 'bad');
+      return;
+    }
+    const from = heroSquadOf(s, id);
+    if (from !== null && from !== squadId && squadBusy(s, from)) {
+      toast(`${heroDef(id)?.callsign} is on a march with Squad ${from}`, 'bad');
+      return;
+    }
     const inThis = slots.indexOf(id);
     if (inThis >= 0 && sel === null) {
       // Tapping a deployed hero removes it.
@@ -90,7 +107,7 @@ export function FormationScreen(props: { squadId?: number }) {
       }
     }
     const other = heroSquadOf(s, id);
-    assignHero(squadId, target, id);
+    if (!assignHero(squadId, target, id)) return;
     if (other && other !== squadId) toast(`${heroDef(id)?.callsign} moved from Squad ${other}`, 'info');
     sfx.click();
     setSel(null);
@@ -113,8 +130,9 @@ export function FormationScreen(props: { squadId?: number }) {
         <>
           <Btn
             color="gray"
+            disabled={locked}
             onClick={() => {
-              for (let i = 0; i < 5; i++) if (slots[i]) assignHero(squadId, i, null);
+              for (let i = 0; i < 5; i++) if (slots[i] && !assignHero(squadId, i, null)) break;
               setSel(null);
             }}
           >
@@ -122,10 +140,10 @@ export function FormationScreen(props: { squadId?: number }) {
           </Btn>
           <Btn
             color="blue"
+            disabled={locked}
             onClick={() => {
-              autoFillSquad(squadId);
+              if (autoFillSquad(squadId)) sfx.upgrade();
               setSel(null);
-              sfx.upgrade();
             }}
           >
             Quick Deploy
@@ -152,10 +170,13 @@ export function FormationScreen(props: { squadId?: number }) {
             >
               {!open && <ItemIcon id="lock" size={13} />}
               Squad {id}
+              {open && squadBusy(s, id) && <span class="busy-dot" title="On a world march" />}
             </button>
           );
         })}
       </div>
+
+      {locked && <div class="f-busy">Squad {squadId} is out on a world march. Its heroes and soldiers are locked until it returns.</div>}
 
       <div class="field">
         <div class="field-enemy">▲ ENEMY ▲</div>
@@ -190,7 +211,7 @@ export function FormationScreen(props: { squadId?: number }) {
           <div class="dim-label">Squad power</div>
           <PowerTag value={power} big />
           <div class="dim-label">
-            <Icon name="troops" size={13} /> Soldiers led: <b>{fmt(troops)}</b>
+            <Icon name="troops" size={13} /> Soldiers led: <b>{fmt(troops)}</b> / {fmt(cap)}
           </div>
         </div>
         <div class="si-right">

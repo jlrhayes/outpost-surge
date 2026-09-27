@@ -3,11 +3,11 @@ import { useState } from 'preact/hooks';
 import { useGame } from '../../core/store';
 import { canAfford } from '../../core/economy';
 import { fmt, fmtDuration } from '../../core/format';
-import { toast } from '../../core/nav';
+import { focusBuilding, toast } from '../../core/nav';
 import { getBonus } from '../../core/bonuses';
 import { sfx } from '../../core/audio';
 import { buildingsOf, getBuilding, maxTrainTier, trainBatchSize, troopCapacity } from '../../systems/buildings';
-import { MAX_TIER, TROOP_TIERS, troopTier } from '../../data/troops';
+import { MAX_TIER, TROOP_TIERS, fmtTroopStat, troopTier } from '../../data/troops';
 import { startTraining, totalTroops, trainCost, trainDurationMs, trainingJobFor, troopRoom, troopsInTraining } from '../../systems/troops';
 import { Bar, Btn, CostView, Screen, SectionTitle } from '../components/common';
 import { Icon } from '../components/Icon';
@@ -44,7 +44,9 @@ export function BarracksScreen(props: { uid?: string; screenKey: number }) {
   const ready = totalTroops(s);
   const inTraining = troopsInTraining(s);
   const batch = trainBatchSize(s, uid);
-  const maxQty = Math.max(0, Math.min(batch, troopRoom(s)));
+  const room = troopRoom(s);
+  const full = room <= 0;
+  const maxQty = Math.max(0, Math.min(batch, room));
   const count = qty < 0 ? maxQty : Math.min(qty, maxQty);
   const def = troopTier(Math.min(tier, MAX_TIER));
   const locked = tier > maxTier;
@@ -108,18 +110,18 @@ export function BarracksScreen(props: { uid?: string; screenKey: number }) {
             <div class="soldier-name">
               {def.name} <span class="dim-text">T{def.tier}</span>
             </div>
-            <div class="soldier-stats">
+            <div class="soldier-stats" title="Per soldier (added to the hero who leads it)">
               <span>
-                <Icon name="power" size={16} /> {fmt(def.power)}
+                <Icon name="power" size={16} /> {fmtTroopStat(def.power)}
               </span>
               <span>
-                <Icon name="heart" size={16} /> {fmt(def.hp)}
+                <Icon name="heart" size={16} /> {fmtTroopStat(def.hp)}
               </span>
               <span>
-                <Icon name="swords" size={16} /> {fmt(def.atk)}
+                <Icon name="swords" size={16} /> {fmtTroopStat(def.atk)}
               </span>
               <span>
-                <Icon name="shield" size={16} /> {fmt(def.def)}
+                <Icon name="shield" size={16} /> {fmtTroopStat(def.def)}
               </span>
             </div>
             <div class="dim-text small">Owned: {fmt(s.meta.troops[def.tier] ?? 0)}</div>
@@ -132,7 +134,24 @@ export function BarracksScreen(props: { uid?: string; screenKey: number }) {
         ) : (
           <>
             <QuantityPicker value={count} min={maxQty > 0 ? 1 : 0} max={maxQty} onChange={setQty} />
-            {maxQty === 0 && !job && <div class="locked-note">{buildingName('drill')} is full — upgrade it to house more soldiers.</div>}
+            {full && !job && (
+              <div class="locked-note" style={{ flexDirection: 'column', alignItems: 'stretch', textAlign: 'center', gap: '8px' }}>
+                <span>
+                  <Icon name="troops" size={18} /> {buildingName('drill')} is full ({fmt(ready + inTraining)} / {fmt(cap)})
+                </span>
+                <span class="dim-text small" style={{ fontWeight: 600 }}>
+                  Upgrade it (or build another) to house more soldiers. Soldiers from battles and Special Ops count too.
+                </span>
+                <Btn color="blue" icon="upgrade" onClick={() => focusBuilding({ type: 'drill', openPanel: true })}>
+                  Go to {buildingName('drill')}
+                </Btn>
+              </div>
+            )}
+            {!full && maxQty < batch && !job && (
+              <div class="dim-text small">
+                Only {fmt(maxQty)} more soldiers fit in the {buildingName('drill')}.
+              </div>
+            )}
             <div class="train-cost-row">
               <CostView cost={cost} />
               <span class="tech-time">
