@@ -117,10 +117,10 @@ export interface GearSlotDef {
   per: { hp?: number; atk?: number; def?: number; crit?: number };
 }
 export const GEAR_SLOTS: GearSlotDef[] = [
-  { id: 'gun', name: 'Gun', per: { atk: 2.5 } },
-  { id: 'armor', name: 'Armor', per: { def: 3, hp: 1 } },
-  { id: 'chip', name: 'Chip', per: { atk: 1, hp: 1.5, crit: 0.2 } },
-  { id: 'radar', name: 'Radar', per: { hp: 2.5, def: 1.5 } },
+  { id: 'gun', name: 'Weapon', per: { atk: 2.5 } },
+  { id: 'armor', name: 'Plating', per: { def: 3, hp: 1 } },
+  { id: 'chip', name: 'Processor', per: { atk: 1, hp: 1.5, crit: 0.2 } },
+  { id: 'radar', name: 'Scanner', per: { hp: 2.5, def: 1.5 } },
 ];
 
 export function gearTier(level: number): { name: string; color: string } {

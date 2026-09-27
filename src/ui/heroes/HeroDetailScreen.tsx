@@ -1,5 +1,6 @@
 // OWNER: heroes agent. 'heroDetail' screen: big portrait, stats, and Level / Stars / Skills / Gear tabs.
 import { useState } from 'preact/hooks';
+import { buildingName } from '../../data/buildings';
 import { useGame } from '../../core/store';
 import { openScreen, toast } from '../../core/nav';
 import { sfx } from '../../core/audio';
@@ -141,7 +142,7 @@ function LevelTab(props: { h: HeroState; d: HeroDef }) {
           </Btn>
         </div>
       )}
-      {!atCap && s.currencies.heroExp < next && <div class="dim-label center">Get Hero EXP from districts, the loot truck and the Training Base.</div>}
+      {!atCap && s.currencies.heroExp < next && <div class="dim-label center">Get Hero EXP from districts, the loot truck and the {buildingName('trainingbase')}.</div>}
     </div>
   );
 }

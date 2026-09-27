@@ -56,7 +56,7 @@ export const ZOMBIE_KINDS: Record<ZombieKind, ZombieKindDef> = {
   },
   brute: {
     kind: 'brute',
-    name: 'Hulk',
+    name: 'Mauler',
     model: 'zombieBrute',
     skillId: 'z_smash',
     ratio: { hp: 16, atk: 0.75, def: 0.9 },
