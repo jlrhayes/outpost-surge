@@ -6,7 +6,7 @@ import { modeFactories } from './modes';
 import { startTicking } from './core/tick';
 import { game, mutate, startAutosave } from './core/store';
 import { goTo, openScreen } from './core/nav';
-import { debugSkip, now } from './core/tick';
+import { debugSkip, now, runTickers } from './core/tick';
 import { grant } from './core/economy';
 import type { ModeId } from './core/types';
 import { unlockAudio } from './core/audio';
@@ -34,7 +34,7 @@ function boot() {
   // Dev-only test hooks: ?mode=runner&level=3 | ?mode=world | ?mode=base&screen=heroes, and window.__os.
   const q = new URLSearchParams(location.search);
   if (import.meta.env.DEV) {
-    (window as any).__os = { game, mutate, goTo, openScreen, debugSkip, grant, now };
+    (window as any).__os = { game, mutate, goTo, openScreen, debugSkip, grant, now, engine, runTickers };
   }
   const devMode = import.meta.env.DEV ? (q.get('mode') as ModeId | null) : null;
 
