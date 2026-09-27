@@ -3,7 +3,7 @@
 // A mode owns its scene/camera/input. Input: listen for pointer events on `engine.canvas`
 // (UI overlays use pointer-events:none on empty areas so touches fall through to the canvas).
 import * as THREE from 'three';
-import { effect } from '@preact/signals';
+import { effect, untracked } from '@preact/signals';
 import { route } from '../core/nav';
 import type { ModeId } from '../core/types';
 import { game } from '../core/store';
@@ -50,9 +50,10 @@ class Engine {
     window.addEventListener('resize', () => this.onResize());
     this.onResize();
 
+    // Only `route` is tracked: modes may read/write state in enter()/exit() without re-triggering this effect.
     effect(() => {
       const r = route.value;
-      this.setMode(r.mode, r.params);
+      untracked(() => this.setMode(r.mode, r.params));
     });
 
     this.renderer.setAnimationLoop(() => this.frame());
