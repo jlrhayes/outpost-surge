@@ -117,13 +117,13 @@ function arenaFor(stage: number): Arena {
 export function districtRewards(stage: number): Reward {
   const g = (base: number, rate: number) => Math.round(base * Math.pow(rate, stage - 1));
   const r: Reward = {
-    currencies: { food: g(300, 1.09), iron: g(220, 1.09), heroExp: g(150, 1.1), diamonds: 20 },
+    currencies: { food: g(300, 1.09), iron: g(220, 1.09), heroExp: g(150, 1.1), diamonds: 8 },
     items: {},
   };
   if (stage >= 8) r.currencies!.gold = Math.round(100 * Math.pow(1.08, stage - 8));
   if (stage % 2 === 0) r.items!.skill_medal = 2 + Math.floor(stage / 5);
   if (isBossDistrict(stage)) {
-    r.currencies!.diamonds = 60;
+    r.currencies!.diamonds = 40;
     r.items!.recruit_ticket = stage % 10 === 0 ? 2 : 1;
     // Shards of a (stable) random SSR hero: enough to unlock it if not owned yet.
     const ssr = HEROES.filter((h) => h.rarity === 'SSR');
@@ -140,7 +140,7 @@ export function districtInfo(stage: number): DistrictInfo {
   if (d) return d;
   const boss = isBossDistrict(stage);
   const bossName = boss ? BOSS_NAMES[(stage / 5 - 1) % BOSS_NAMES.length] : undefined;
-  const power = districtPower(stage);
+  const power = Math.round(districtPower(stage) * (boss ? 0.8 : 1));
   const units = stage === 1 ? 3 : stage === 2 ? 4 : 5;
   const enemies = zombieFormation(power, hashSeed('district' + stage), { level: stage, boss, bossName, uidPrefix: 'd' + stage, units: boss ? 4 : units });
   let rec = 0;
@@ -151,7 +151,7 @@ export function districtInfo(stage: number): DistrictInfo {
     boss,
     bossName,
     arena: arenaFor(stage),
-    recommended: Math.floor(rec),
+    recommended: Math.floor(rec * (boss ? 1.25 : 1.1)),
     enemies,
     rewards: districtRewards(stage),
   };

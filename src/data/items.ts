@@ -105,7 +105,7 @@ const DEFS: ItemDef[] = [
     icon: 'supply',
     category: 'resources',
     rarity: 'rare',
-    use: { reward: { currencies: { food: 3000, iron: 3000 }, items: { speedup_5m: 1 } }, label: 'Open' },
+    use: { reward: { currencies: { food: 3000, iron: 3000 }, items: { speedup_1m: 2 } }, label: 'Open' },
     sort: 7,
   },
   {

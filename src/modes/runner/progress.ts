@@ -3,8 +3,8 @@ import { game, mutate, type GameState } from '../../core/store';
 import { grantIn } from '../../core/economy';
 import { emit } from '../../core/events';
 import { isUnlocked, unlockHint } from '../../core/unlocks';
-import { hqLevel } from '../../systems/buildings';
-import { bestTroopTier } from '../../systems/troops';
+import { hqLevel, troopCapacity } from '../../systems/buildings';
+import { bestTroopTier, totalTroops } from '../../systems/troops';
 import type { Reward } from '../../core/types';
 import { CHAPTERS, LEVEL_COUNT, chapterOf, isBossLevel, LEVELS_PER_CHAPTER } from '../../data/runner';
 
@@ -55,18 +55,20 @@ export function starsFor(survivors: number, peak: number): number {
 /** Rewards for winning `level` (not the intro). Used for the result screen and the level preview. */
 export function levelReward(s: GameState, level: number, survivors: number, stars: number, firstClear: boolean): Reward {
   const tier = bestTroopTier(s);
-  const troops = Math.min(firstClear ? TROOP_CAP_FIRST : TROOP_CAP_REPLAY, Math.floor(firstClear ? survivors : survivors * 0.5));
+  const want = Math.min(firstClear ? TROOP_CAP_FIRST : TROOP_CAP_REPLAY, Math.floor(firstClear ? survivors : survivors * 0.5));
+  const troops = Math.min(want, Math.max(0, troopCapacity(s) - totalTroops(s)));
+  const spare = want - troops;
   const starMult = 0.7 + 0.15 * Math.max(1, stars);
   const mult = starMult * (firstClear ? 1 : 0.4);
   const currencies: Reward['currencies'] = {
-    food: round50((400 + level * 160) * mult),
-    iron: round50((300 + level * 120) * mult),
+    food: round50((400 + level * 160) * mult) + spare * 20,
+    iron: round50((300 + level * 120) * mult) + spare * 15,
     heroExp: round50((150 + level * 70) * mult),
   };
   if (level >= 9) currencies.gold = round50(level * 30 * mult);
   const items: Reward['items'] = {};
   if (firstClear) {
-    currencies.diamonds = 10;
+    currencies.diamonds = 5;
     const ch = chapterOf(level);
     if (isBossLevel(level)) {
       currencies.diamonds += 100 + 50 * (ch - 1);

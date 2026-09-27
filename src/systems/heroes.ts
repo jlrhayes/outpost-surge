@@ -204,7 +204,7 @@ export function heroLevelCap(s: GameState): number {
 
 /** Hero EXP needed to go from `level` to `level + 1`. */
 export function expToNext(level: number): number {
-  return Math.round(20 * Math.pow(level, 1.8) + 30);
+  return Math.round(12 * Math.pow(level, 1.7) + 40);
 }
 
 export function canLevelUp(s: GameState, h: HeroState): boolean {

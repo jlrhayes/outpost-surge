@@ -105,10 +105,11 @@ export function districtName(n: number): string {
 export const DISTRICT_BASE_POWER = 6200;
 /** +12% per district for the first 15, +11% up to 40, then +7.5% (keeps late districts reachable). */
 export function districtPower(n: number): number {
-  const a = Math.min(n, 15) - 1;
-  const b = Math.max(0, Math.min(n, 40) - 15);
-  const c = Math.max(0, n - 40);
-  return Math.round(DISTRICT_BASE_POWER * Math.pow(1.12, a) * Math.pow(1.11, b) * Math.pow(1.075, c));
+  const a = Math.min(n, 10) - 1;
+  const b = Math.max(0, Math.min(n, 20) - 10);
+  const c = Math.max(0, Math.min(n, 40) - 20);
+  const d = Math.max(0, n - 40);
+  return Math.round(DISTRICT_BASE_POWER * Math.pow(1.22, a) * Math.pow(1.09, b) * Math.pow(1.055, c) * Math.pow(1.06, d));
 }
 
 export function isBossDistrict(n: number): boolean {

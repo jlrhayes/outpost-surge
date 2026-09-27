@@ -40,11 +40,11 @@ export const DAILY_TASKS: DailyTaskDef[] = [
 ];
 
 export const DAILY_CHESTS: { points: number; reward: Reward }[] = [
-  { points: 40, reward: { currencies: { food: 3000, iron: 3000 }, items: { speedup_5m: 2 } } },
-  { points: 80, reward: { currencies: { heroExp: 3000 }, items: { speedup_5m: 3, stamina_potion: 1 } } },
-  { points: 120, reward: { currencies: { diamonds: 30 }, items: { recruit_ticket: 1, speedup_1h: 1 } } },
+  { points: 40, reward: { currencies: { food: 3000, iron: 3000 }, items: { speedup_1m: 2 } } },
+  { points: 80, reward: { currencies: { heroExp: 3000 }, items: { speedup_1m: 3, stamina_potion: 1 } } },
+  { points: 120, reward: { currencies: { diamonds: 30 }, items: { recruit_ticket: 1, speedup_5m: 1 } } },
   { points: 160, reward: { currencies: { gold: 2000 }, items: { supply_crate: 1, skill_medal: 5 } } },
-  { points: 200, reward: { currencies: { diamonds: 60 }, items: { recruit_ticket: 2, speedup_1h: 2, exp_box: 2 } } },
+  { points: 200, reward: { currencies: { diamonds: 60 }, items: { recruit_ticket: 2, speedup_5m: 2, exp_box: 2 } } },
 ];
 export const DAILY_MAX_POINTS = 200;
 
