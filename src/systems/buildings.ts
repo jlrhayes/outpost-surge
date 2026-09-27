@@ -1,11 +1,11 @@
 // OWNER: base agent. Building rules: upgrades, construction queue, production, gating.
 // The exported query functions at the top are a CONTRACT used by other modules — keep their signatures.
 import { game, mutate, version, type GameState } from '../core/store';
-import type { BonusKey, BuildingType, CurrencyId } from '../core/types';
+import type { BonusKey, BuildingType, Cost, CurrencyId } from '../core/types';
 import type { BuildingState } from '../state/base';
 import { getBonus } from '../core/bonuses';
 import { emit } from '../core/events';
-import { addStat, canAfford, grantIn, spendIn } from '../core/economy';
+import { addStat, canAfford, grantIn, shortfall, spendIn } from '../core/economy';
 import { now } from '../core/tick';
 import { districtsCleared } from '../core/unlocks';
 import {
@@ -217,6 +217,14 @@ export function upgradeBlock(s: GameState, b: BuildingState | undefined): Upgrad
   return null;
 }
 
+const CURRENCY_LABEL: Partial<Record<CurrencyId, string>> = { food: 'Food', iron: 'Iron', gold: 'Gold', diamonds: 'Diamonds', heroExp: 'Hero EXP' };
+
+/** "Not enough Food & Iron" for a cost the player can't afford. */
+export function shortText(cost: Cost): string {
+  const miss = Object.keys(shortfall(game, cost)) as CurrencyId[];
+  return miss.length ? `Not enough ${miss.map((k) => CURRENCY_LABEL[k] ?? k).join(' & ')}` : blockText('resources');
+}
+
 export function blockText(block: UpgradeBlock): string {
   switch (block) {
     case 'max':
@@ -329,6 +337,11 @@ function nextUid(s: GameState, type: BuildingType): string {
 export function startUpgrade(uid: string): ActionResult {
   const b0 = getBuilding(game, uid);
   const block = upgradeBlock(game, b0);
+  if (block === 'requirements' && b0) {
+    const miss = levelRequirements(game, b0.type, b0.level + 1).find((r) => !r.met);
+    return { ok: false, block, reason: miss ? `Requires ${miss.label}` : blockText(block) };
+  }
+  if (block === 'resources' && b0) return { ok: false, block, reason: shortText(upgradeCost(b0.type, b0.level + 1)) };
   if (block) return { ok: false, block, reason: blockText(block) };
   let started: { type: BuildingType; toLevel: number } | null = null;
   mutate((s) => {
@@ -358,7 +371,7 @@ export function constructBlock(s: GameState, type: BuildingType, plotId: number)
     return r ? ruleText(r) : 'Maximum number built';
   }
   if (!hasFreeBuilder(s)) return blockText('builders');
-  if (!canAfford(s, upgradeCost(type, 1))) return blockText('resources');
+  if (!canAfford(s, upgradeCost(type, 1))) return shortText(upgradeCost(type, 1));
   return null;
 }
 
@@ -484,6 +497,11 @@ export function instantUpgrade(uid: string): ActionResult {
   const b = getBuilding(game, uid);
   if (!b) return { ok: false, reason: 'Unknown building' };
   const block = upgradeBlock(game, b);
+  if (block === 'resources') return { ok: false, block, reason: shortText(upgradeCost(b.type, b.level + 1)) };
+  if (block === 'requirements') {
+    const miss = levelRequirements(game, b.type, b.level + 1).find((r) => !r.met);
+    return { ok: false, block, reason: miss ? `Requires ${miss.label}` : blockText(block) };
+  }
   if (block && block !== 'builders') return { ok: false, block, reason: blockText(block) };
   const to = b.level + 1;
   const dia = instantUpgradeDiamonds(game, b);
