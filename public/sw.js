@@ -72,13 +72,25 @@ function cacheable(response) {
 
 async function networkFirst(request, isPage) {
   const cache = await caches.open(CACHE);
-  try {
-    const response = await fetch(request);
+  const fallback = async () =>
+    (await cache.match(request, { ignoreSearch: true })) || (isPage ? await cache.match(START_URL) : undefined);
+  // Pages revalidate with the server (GitHub Pages sends max-age=600) so new builds arrive promptly.
+  const network = fetch(isPage ? new Request(request, { cache: 'no-cache' }) : request).then(async (response) => {
     if (cacheable(response)) await cache.put(request, response.clone());
     return response;
+  });
+  if (isPage) {
+    // Connected-but-dead networks can hang for a long time: fall back to the cached game after 3.5 s.
+    const timeout = new Promise((resolve) => setTimeout(resolve, 3500, null));
+    const first = await Promise.race([network.catch(() => null), timeout]);
+    if (first) return first;
+    const cached = await fallback();
+    if (cached) return cached;
+  }
+  try {
+    return await network;
   } catch (err) {
-    const cached =
-      (await cache.match(request, { ignoreSearch: true })) || (isPage ? await cache.match(START_URL) : undefined);
+    const cached = await fallback();
     if (cached) return cached;
     throw err;
   }

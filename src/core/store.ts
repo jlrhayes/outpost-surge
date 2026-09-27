@@ -22,6 +22,16 @@ export interface Settings {
   sfx: boolean;
   music: boolean;
   quality: 'low' | 'high';
+  /** The engine's one-time automatic performance check has run. */
+  perfChecked: boolean;
+}
+
+/** First-launch graphics default: modest hardware starts on 'low' (no shadows, lower resolution). */
+function detectQuality(): 'low' | 'high' {
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  const cores = nav.hardwareConcurrency || 4;
+  const mem = nav.deviceMemory;
+  return cores <= 4 || (mem !== undefined && mem <= 3) ? 'low' : 'high';
 }
 
 export interface GameState {
@@ -51,7 +61,7 @@ export function defaultState(now = Date.now()): GameState {
     currencies: { food: 2000, iron: 1500, gold: 500, diamonds: 300, heroExp: 1000 },
     items: { recruit_ticket: 10, speedup_5m: 5, speedup_1h: 1, stamina_potion: 1 },
     stats: {},
-    settings: { sfx: true, music: true, quality: 'high' },
+    settings: { sfx: true, music: true, quality: detectQuality(), perfChecked: false },
     base: defaultBaseState(now),
     heroes: defaultHeroesState(now),
     world: defaultWorldState(now),
@@ -83,7 +93,13 @@ function load(): { state: GameState; isNew: boolean } {
       return { state: mergeDefaults(defaultState(), parsed), isNew: false };
     }
   } catch (e) {
-    console.warn('Save load failed, starting fresh', e);
+    console.warn('Save load failed, starting fresh (old save kept as backup)', e);
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw) localStorage.setItem(SAVE_KEY + '-corrupt-' + Date.now(), raw);
+    } catch {
+      /* storage full or unavailable */
+    }
   }
   return { state: defaultState(), isNew: true };
 }
