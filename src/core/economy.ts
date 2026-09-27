@@ -79,14 +79,10 @@ export function grantIn(s: GameState, reward: Reward): void {
   if ((reward.heroes?.length || reward.heroShards) && heroGrantHandler) heroGrantHandler(s, reward);
 }
 
-/** Standalone grant (wraps mutate). */
+/** Standalone grant (wraps mutate). Does not emit `resource:collected` — that event is reserved for
+ * the player collecting building production. */
 export function grant(reward: Reward): void {
   mutate((s) => grantIn(s, reward));
-  if (reward.currencies) {
-    for (const [k, v] of Object.entries(reward.currencies) as [CurrencyId, number][]) {
-      if (v > 0) emit('resource:collected', { resource: k, amount: v });
-    }
-  }
 }
 
 export function isEmptyReward(r: Reward): boolean {
